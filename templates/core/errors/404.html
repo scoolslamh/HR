@@ -1,0 +1,13 @@
+{% extends "core/auth_base.html" %}
+
+{% block content %}
+  <div class="container-tight py-5 text-center error-page">
+    <div class="error-code" aria-hidden="true">404</div>
+    <h1 class="h1 mb-3">الصفحة غير موجودة</h1>
+    <p class="text-secondary mb-4">تعذر العثور على الصفحة المطلوبة. تحقق من الرابط وحاول مرة أخرى.</p>
+    <a class="btn btn-primary" href="{% url 'core:dashboard' %}">
+      <i data-lucide="house" aria-hidden="true"></i>
+      العودة إلى الرئيسية
+    </a>
+  </div>
+{% endblock %}

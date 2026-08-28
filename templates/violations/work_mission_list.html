@@ -1,0 +1,14 @@
+{% extends "core/base.html" %}
+{% block content %}
+<div class="row row-cards mb-4">
+  <div class="col-6 col-lg-3"><div class="card card-sm"><div class="card-body"><div class="text-secondary">إجمالي مهمات العمل</div><div class="h1 text-primary">{{ mission_total }}</div></div></div></div>
+  <div class="col-6 col-lg-3"><div class="card card-sm"><div class="card-body"><div class="text-secondary">عدد الموظفين</div><div class="h1">{{ employee_total }}</div></div></div></div>
+</div>
+<section class="card">
+  <div class="card-header"><div><h2 class="card-title">الموظفون المسجلة لهم مهمة عمل</h2><p class="text-secondary mb-0">تعتمد البيانات على النتائج الحالية المستخرجة من الشيت والملفات غير المؤرشفة.</p></div></div>
+  <div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th>الموظف</th><th>القسم</th><th>عدد المهمات</th><th>آخر مهمة</th></tr></thead><tbody>
+  {% for row in page_obj %}<tr><td class="fw-semibold">{{ row.employee__full_name_ar }}</td><td>{{ row.department__name_ar|default:"—" }}</td><td><span class="badge bg-blue-lt">{{ row.mission_count }}</span></td><td>{{ row.latest_date|date:"Y/m/d" }}</td></tr>{% empty %}<tr><td colspan="4" class="text-center text-secondary py-5">لا توجد مهمات عمل مسجلة ضمن نطاقك.</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% include "attendance/import/_pagination.html" with page_obj=page_obj %}
+</section>
+{% endblock %}

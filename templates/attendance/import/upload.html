@@ -1,0 +1,22 @@
+{% extends "core/base.html" %}
+{% load static %}
+{% block extra_css %}<link href="{% static 'attendance/css/import.css' %}" rel="stylesheet">{% endblock %}
+{% block page_actions %}<a class="btn btn-outline-secondary" href="{% url 'attendance:import_list' %}">سجل الاستيراد</a>{% endblock %}
+{% block content %}
+{% include "attendance/import/_messages.html" %}
+<div class="row row-cards"><div class="col-12 col-xl-8"><section class="card"><form method="post" enctype="multipart/form-data" novalidate data-attendance-upload-form>{% csrf_token %}
+<div class="card-header"><div><h2 class="card-title">اختيار تقرير البصمة</h2><p class="text-secondary mb-0">القالب الرسمي التجميعي بصيغة xlsx، سواء كانت مدته أسبوعًا أو شهرًا أو أكثر.</p></div></div>
+<div class="card-body"><div class="mb-3"><label class="form-label" for="{{ form.workbook.id_for_label }}">{{ form.workbook.label }}</label>{{ form.workbook }}<div class="form-hint">{{ form.workbook.help_text }}</div>{% for error in form.workbook.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}</div>
+<div class="alert alert-info"><strong>لن تُعدّل بيانات الموظفين.</strong> تتم المطابقة مع السجل الأساسي بواسطة بصمة آمنة للسجل المدني.</div>
+<div class="attendance-upload-progress mt-4" data-upload-progress hidden aria-live="polite">
+  <div class="d-flex justify-content-between gap-3 mb-2"><strong data-upload-status>جارٍ رفع الملف…</strong><span dir="ltr" data-upload-percent>0%</span></div>
+  <div class="progress" role="progressbar" aria-label="تقدم رفع ملف الحضور" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+    <div class="progress-bar" data-upload-bar style="width: 0%"></div>
+  </div>
+  <p class="small text-secondary mt-2 mb-0">لا تغلق الصفحة حتى تظهر نتيجة فحص الملف.</p>
+</div>
+<div class="alert alert-danger mt-3 mb-0" data-upload-error hidden>تعذر رفع الملف. تحقق من الاتصال ثم حاول مرة أخرى.</div></div>
+<div class="card-footer text-end"><button class="btn btn-primary" type="submit" data-upload-submit><i data-lucide="scan-search"></i> <span data-upload-button-label>رفع وإنشاء المعاينة</span></button></div></form></section></div>
+<div class="col-12 col-xl-4"><section class="card"><div class="card-header"><h2 class="card-title">القالب المتوقع</h2></div><div class="card-body"><ul class="mb-0"><li>عنوان الفترة أعلى الشيت ويحتوي تاريخ البداية والنهاية</li><li>الفترة قد تكون أسبوعًا أو شهرًا أو أكثر</li><li>مجموعة أيام لكل موظف</li><li>صف مجموع بعد المجموعة</li><li>خلايا مدمجة مدعومة</li><li>المطابقة بالسجل المدني فقط</li></ul></div></section></div></div>
+{% endblock %}
+{% block extra_js %}<script src="{% static 'attendance/js/import-upload.js' %}" defer></script>{% endblock %}

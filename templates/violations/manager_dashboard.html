@@ -1,0 +1,11 @@
+{% extends "core/base.html" %}
+{% block content %}
+  {% include "organization/employee_import/_messages.html" %}
+  <div class="row row-cards mb-4">
+    <div class="col-6 col-lg-3"><div class="card card-sm"><div class="card-body"><div class="text-secondary">إجمالي الإفادات</div><div class="h1">{{ summary.total }}</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card card-sm"><div class="card-body"><div class="text-secondary">المفتوحة</div><div class="h1">{{ summary.open }}</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card card-sm"><div class="card-body"><div class="text-secondary">بانتظار اعتمادي</div><div class="h1">{{ summary.awaiting_manager }}</div></div></div></div>
+    <div class="col-6 col-lg-3"><div class="card card-sm"><div class="card-body"><div class="text-secondary">تمت المعالجة</div><div class="h1">{{ summary.processed }}</div></div></div></div>
+  </div>
+  <section class="card"><div class="table-responsive"><table class="table card-table"><thead><tr><th>الموظف</th><th>القسم</th><th>التاريخ</th><th>النوع</th><th>الحالة</th><th></th></tr></thead><tbody>{% for item in items %}<tr><td>{{ item.employee.full_name_ar }}</td><td>{{ item.department.name_ar|default:"—" }}</td><td>{{ item.attendance_result.attendance_date|date:"Y/m/d" }}</td><td>{{ item.get_kind_display }}</td><td>{{ item.get_status_display }}</td><td><a class="btn btn-sm btn-outline-primary" href="{% url 'violations:manager_review' item.id %}">التفاصيل</a></td></tr>{% empty %}<tr><td colspan="6" class="text-center text-secondary py-5">لا توجد إفادات.</td></tr>{% endfor %}</tbody></table></div></section>
+{% endblock %}

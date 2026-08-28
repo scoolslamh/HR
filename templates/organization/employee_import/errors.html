@@ -1,0 +1,84 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block extra_css %}<link href="{% static 'organization/css/employee_import.css' %}" rel="stylesheet">{% endblock %}
+
+{% block page_actions %}
+  <div class="col-auto d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-primary" href="{% url 'organization:employee_import_preview' batch.id %}">
+      <i data-lucide="scan-search" aria-hidden="true"></i>
+      العودة إلى المعاينة
+    </a>
+    <a class="btn btn-outline-secondary" href="{% url 'organization:employee_import_detail' batch.id %}">
+      <i data-lucide="file-text" aria-hidden="true"></i>
+      تفاصيل الدفعة
+    </a>
+  </div>
+{% endblock %}
+
+{% block content %}
+  {% include "organization/employee_import/_messages.html" %}
+
+  <div class="row row-cards mb-4">
+    <div class="col-12 col-md-6">
+      <article class="card h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <span class="avatar bg-red-lt text-red" aria-hidden="true"><i data-lucide="circle-x"></i></span>
+          <div><div class="text-secondary">أخطاء مانعة</div><div class="h2 mb-0 mt-1">{{ batch.error_rows }}</div></div>
+        </div>
+      </article>
+    </div>
+    <div class="col-12 col-md-6">
+      <article class="card h-100">
+        <div class="card-body d-flex align-items-center gap-3">
+          <span class="avatar bg-yellow-lt text-yellow" aria-hidden="true"><i data-lucide="triangle-alert"></i></span>
+          <div><div class="text-secondary">تحذيرات</div><div class="h2 mb-0 mt-1">{{ batch.warning_rows }}</div></div>
+        </div>
+      </article>
+    </div>
+  </div>
+
+  {% include "core/components/alert.html" with type="info" icon="shield-check" title="حماية البيانات" message="تعرض هذه الصفحة رقم الصف والحقل والرسالة الآمنة فقط. لا يُعرض السجل المدني كاملًا أو محتوى الصف الأصلي." only %}
+
+  <section class="card mt-4">
+    <div class="card-header">
+      <div class="min-w-0">
+        <h2 class="card-title">{{ batch.ui_original_filename }}</h2>
+        <p class="card-subtitle text-secondary mt-1">نتائج التحقق المسجلة للدفعة</p>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-hover import-errors-table">
+        <thead>
+          <tr>
+            <th scope="col">رقم الصف</th>
+            <th scope="col">الدرجة</th>
+            <th scope="col">الحقل</th>
+            <th scope="col">رمز التحقق</th>
+            <th scope="col">الرسالة</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in page_obj.object_list %}
+            <tr>
+              <td>{% if item.row %}{{ item.row.row_number }}{% else %}عام{% endif %}</td>
+              <td>
+                {% if item.severity == "error" %}
+                  {% include "core/components/badge.html" with text="خطأ مانع" color="red" only %}
+                {% else %}
+                  {% include "core/components/badge.html" with text="تحذير" color="yellow" only %}
+                {% endif %}
+              </td>
+              <td>{{ item.field_name|default:"—" }}</td>
+              <td><code class="verification-code">{{ item.error_code }}</code></td>
+              <td class="text-wrap">{{ item.message_ar }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5" class="text-center text-secondary py-6">لا توجد أخطاء أو تحذيرات في هذه الدفعة.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% include "organization/employee_import/_pagination.html" %}
+{% endblock %}

@@ -1,0 +1,74 @@
+<div class="row row-cards import-summary-grid" aria-label="ملخص التحقق">
+  <div class="col-6 col-lg-3">
+    <article class="card import-summary-card import-summary-blue h-100">
+      <div class="card-body">
+        <i data-lucide="rows-3" aria-hidden="true"></i>
+        <span>إجمالي الصفوف</span>
+        <strong>{{ batch.total_rows }}</strong>
+      </div>
+    </article>
+  </div>
+  <div class="col-6 col-lg-3">
+    <article class="card import-summary-card import-summary-green h-100">
+      <div class="card-body">
+        <i data-lucide="user-plus" aria-hidden="true"></i>
+        <span>موظفون جدد</span>
+        <strong>{{ batch.new_rows }}</strong>
+      </div>
+    </article>
+  </div>
+  <div class="col-6 col-lg-3">
+    <article class="card import-summary-card import-summary-purple h-100">
+      <div class="card-body">
+        <i data-lucide="user-round-cog" aria-hidden="true"></i>
+        <span>سيتم تحديثهم</span>
+        <strong>{{ batch.update_rows }}</strong>
+      </div>
+    </article>
+  </div>
+  <div class="col-6 col-lg-3">
+    <article class="card import-summary-card import-summary-yellow h-100">
+      <div class="card-body">
+        <i data-lucide="building-2" aria-hidden="true"></i>
+        <span>أقسام غير موجودة</span>
+        <strong>{{ batch.missing_department_rows }}</strong>
+      </div>
+    </article>
+  </div>
+  <div class="col-6 col-lg-3">
+    <article class="card import-summary-card import-summary-yellow h-100">
+      <div class="card-body">
+        <i data-lucide="map-pin-off" aria-hidden="true"></i>
+        <span>مواقع غير موجودة</span>
+        <strong>{{ batch.missing_location_rows }}</strong>
+      </div>
+    </article>
+  </div>
+  <div class="col-6 col-lg-3">
+    <article class="card import-summary-card import-summary-yellow h-100">
+      <div class="card-body">
+        <i data-lucide="user-round-x" aria-hidden="true"></i>
+        <span>مديرون غير مطابقين (تحذير)</span>
+        <strong>{{ batch.unmatched_manager_rows }}</strong>
+      </div>
+    </article>
+  </div>
+  <div class="col-6 col-lg-3">
+    <article class="card import-summary-card import-summary-red h-100">
+      <div class="card-body">
+        <i data-lucide="circle-x" aria-hidden="true"></i>
+        <span>أخطاء مانعة</span>
+        <strong>{{ batch.error_rows }}</strong>
+      </div>
+    </article>
+  </div>
+  <div class="col-6 col-lg-3">
+    <article class="card import-summary-card import-summary-yellow h-100">
+      <div class="card-body">
+        <i data-lucide="triangle-alert" aria-hidden="true"></i>
+        <span>تحذيرات</span>
+        <strong>{{ batch.warning_rows }}</strong>
+      </div>
+    </article>
+  </div>
+</div>

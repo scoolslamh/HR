@@ -1,0 +1,35 @@
+{% extends "core/base.html" %}
+{% block page_actions %}<div class="d-flex gap-2"><a class="btn btn-outline-secondary" href="{% url 'attendance:import_detail' batch.id %}">تفاصيل الدفعة</a><a class="btn btn-outline-primary" href="{% url 'attendance:import_errors' batch.id %}">الأخطاء والتحذيرات</a></div>{% endblock %}
+{% block content %}
+{% include "attendance/import/_messages.html" %}
+{% include "attendance/import/_summary.html" %}
+{% if unmatched_employees %}
+<section class="card mt-4">
+  <div class="card-header"><div><h2 class="card-title">الموظفون غير المطابقين</h2><p class="text-secondary mb-0">عالج كل موظف مرة واحدة؛ سيطبق القرار على جميع أيامه في هذه الدفعة.</p></div></div>
+  {% if not can_resolve_unmatched %}<div class="card-body"><div class="alert alert-warning mb-0">معالجة غير المطابقين وإضافة الموظفين متاحة لمدير النظام فقط.</div></div>{% endif %}
+  <div class="list-group list-group-flush">
+  {% for item in unmatched_employees %}
+    <div class="list-group-item py-3">
+      <div class="row g-3 align-items-end">
+        <div class="col-12 col-lg-3"><strong>{{ item.employee_name }}</strong><div class="small text-secondary">{{ item.job_title }} · <span dir="ltr">{{ item.national_id_masked }}</span> · {{ item.row_count }} سجل</div></div>
+        {% if can_resolve_unmatched %}
+        <div class="col-12 col-lg-9">
+          <form method="post" action="{% url 'attendance:import_resolve_unmatched' batch.id %}" class="row g-2 align-items-end">
+            {% csrf_token %}{{ item.form.national_id_hash }}
+            <div class="col-md-5"><label class="form-label">القسم عند الإضافة</label>{{ item.form.department }}</div>
+            <div class="col-md-7 d-flex gap-2"><button class="btn btn-primary" type="submit" name="action" value="add">إضافة ومطابقة</button><button class="btn btn-outline-secondary" type="submit" name="action" value="ignore" formnovalidate>تجاهل السجلات</button></div>
+          </form>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% if batch.error_count %}<div class="alert alert-danger mt-4"><strong>توجد أخطاء مانعة.</strong> عالج الموظفين غير المطابقين أعلاه، وراجع بقية الأخطاء قبل الاعتماد.</div>{% elif batch.warning_count %}<div class="alert alert-warning mt-4">توجد تحذيرات للمراجعة، ويمكن الاعتماد إذا لم توجد أخطاء مانعة.</div>{% endif %}
+<section class="card mt-4"><div class="card-header"><div><h2 class="card-title">السجلات المستخرجة</h2><p class="text-secondary mb-0">السجل المدني مقنّع، وبيانات المصدر الأصلية محفوظة مشفرة.</p></div></div><div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th>الصف</th><th>الموظف</th><th>السجل المدني</th><th>التاريخ</th><th>الحضور</th><th>الانصراف</th><th>الموقع</th><th>المطابقة</th><th>التحقق</th></tr></thead><tbody>
+{% for row in display_rows %}<tr><td>{{ row.row_number }}</td><th>{{ row.employee_name }}</th><td dir="ltr">{{ row.national_id_masked }}</td><td>{{ row.attendance_date }}</td><td>{{ row.check_in }}</td><td>{{ row.check_out }}</td><td>{{ row.check_in_location }}<div class="mt-1">{% include "core/components/badge.html" with text=row.location_label color=row.location_color only %}</div></td><td>{% include "core/components/badge.html" with text=row.match_label color=row.match_color only %}</td><td>{% include "core/components/badge.html" with text=row.validation_label color=row.validation_color only %}</td></tr>{% empty %}<tr><td colspan="9" class="text-center py-5">لا توجد سجلات.</td></tr>{% endfor %}
+</tbody></table></div></section>{% include "attendance/import/_pagination.html" %}
+{% if can_approve %}<section class="card mt-4" id="approval"><form method="post" action="{% url 'attendance:import_approve' batch.id %}">{% csrf_token %}<div class="card-header"><h2 class="card-title">الاعتماد النهائي</h2></div><div class="card-body"><div class="form-check">{{ approval_form.confirm_approval }}<label class="form-check-label" for="{{ approval_form.confirm_approval.id_for_label }}">{{ approval_form.confirm_approval.label }}</label></div></div><div class="card-footer text-end"><button class="btn btn-success" type="submit">اعتماد وإنشاء السجلات الخام</button></div></form></section>{% endif %}
+{% endblock %}

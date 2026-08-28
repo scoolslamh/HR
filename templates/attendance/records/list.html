@@ -1,0 +1,26 @@
+{% extends "core/base.html" %}
+{% block content %}
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="post" class="row g-3 align-items-end">
+      {% csrf_token %}
+      <div class="col-md-4"><label class="form-label">البحث بالاسم أو السجل المدني</label><input class="form-control" type="search" name="employee_search" value="{{ employee_search }}" autocomplete="off" placeholder="اسم الموظف أو السجل المدني"></div>
+      <div class="col-md-4"><label class="form-label">الموظف</label><select class="form-select" name="employee"><option value="">الجميع</option>{% for item in employees %}<option value="{{ item.id }}" {% if filters.employee == item.id|stringformat:'s' %}selected{% endif %}>{{ item.full_name_ar }} — {{ item.ui_national_id }} — {{ item.ui_department }}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><label class="form-label">القسم</label><select class="form-select" name="department"><option value="">الجميع</option>{% for item in departments %}<option value="{{ item.id }}" {% if filters.department == item.id|stringformat:'s' %}selected{% endif %}>{{ item.name_ar }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label">حالة اليوم</label><select class="form-select" name="status"><option value="">الجميع</option>{% for value,label in attendance_status_choices %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label">من</label><input type="date" class="form-control" name="date_from" value="{{ filters.date_from }}"></div>
+      <div class="col-md-2"><label class="form-label">إلى</label><input type="date" class="form-control" name="date_to" value="{{ filters.date_to }}"></div>
+      <div class="col-12 d-flex gap-2"><button class="btn btn-primary">تطبيق</button><a class="btn btn-outline-secondary" href="{% url 'attendance:record_list' %}">مسح</a></div>
+    </form>
+  </div>
+</div>
+<div class="card">
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table text-nowrap">
+      <thead><tr><th>التاريخ</th><th>الموظف</th><th>السجل المدني</th><th>القسم</th><th>الحضور</th><th>الانصراف</th><th>العمل</th><th>التأخر</th><th>الانصراف المبكر</th><th>حالة اليوم</th><th>الموقع</th></tr></thead>
+      <tbody>{% for row in rows %}<tr><td>{{ row.date|date:"Y/m/d" }}</td><td class="fw-semibold">{{ row.employee }}</td><td dir="ltr">{{ row.national_id }}</td><td>{{ row.department }}</td><td>{{ row.check_in }}</td><td>{{ row.check_out }}</td><td>{{ row.worked }}</td><td>{{ row.late }}</td><td>{{ row.early_leave }}</td><td><span class="badge bg-blue-lt">{{ row.status }}</span></td><td>{% if row.object.location_status == 'matched' %}<span class="badge bg-green-lt">{{ row.location_status }}</span>{% elif row.object.location_status == 'both_outside' %}<span class="badge bg-yellow-lt">{{ row.location_status }}</span>{% else %}<span class="badge bg-secondary-lt">{{ row.location_status }}</span>{% endif %}</td></tr>{% empty %}<tr><td colspan="11" class="text-center text-secondary py-5">لا توجد نتائج حضور محتسبة.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% include "attendance/import/_pagination.html" with page_obj=page_obj %}
+</div>
+{% endblock %}

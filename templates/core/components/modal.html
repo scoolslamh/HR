@@ -1,0 +1,15 @@
+<div class="modal modal-blur fade" id="{{ modal_id|default:'application-modal' }}" tabindex="-1" aria-labelledby="{{ modal_id|default:'application-modal' }}-title" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 class="modal-title" id="{{ modal_id|default:'application-modal' }}-title">{{ title }}</h2>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="إغلاق"></button>
+      </div>
+      <div class="modal-body">{{ body }}</div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-link link-secondary" data-bs-dismiss="modal">إلغاء</button>
+        {% if confirm_label %}<button type="button" class="btn btn-primary" data-bs-dismiss="modal">{{ confirm_label }}</button>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>

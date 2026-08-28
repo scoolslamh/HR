@@ -1,0 +1,24 @@
+{% load static %}
+<!doctype html>
+<html lang="ar" dir="rtl" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#146c94">
+  <title>{{ page_title }} | {{ application_name }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/css/tabler.rtl.min.css" rel="stylesheet">
+  <link href="{% static 'core/css/app.css' %}" rel="stylesheet">
+</head>
+<body class="d-flex flex-column auth-page">
+  <a class="skip-link" href="#main-content">انتقل إلى المحتوى الرئيسي</a>
+  <main id="main-content" class="page page-center" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.4.0/dist/js/tabler.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@1.16.0/dist/umd/lucide.min.js" defer></script>
+  <script src="{% static 'core/js/app.js' %}" defer></script>
+</body>
+</html>

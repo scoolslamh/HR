@@ -1,0 +1,32 @@
+<section class="card">
+  {% if title or description %}
+    <div class="card-header">
+      <div>
+        {% if title %}<h2 class="card-title">{{ title }}</h2>{% endif %}
+        {% if description %}<p class="card-subtitle text-secondary mt-1">{{ description }}</p>{% endif %}
+      </div>
+    </div>
+  {% endif %}
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table table-hover">
+      <thead>
+        <tr>
+          {% for column in columns %}<th scope="col">{{ column }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            {% for value in row %}
+              {% if forloop.first %}<th scope="row" class="fw-medium">{{ value }}</th>{% else %}<td>{{ value }}</td>{% endif %}
+            {% endfor %}
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="{{ columns|length|default:1 }}" class="text-center text-secondary py-5">لا توجد بيانات للعرض.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>

@@ -1,0 +1,10 @@
+<div class="row row-cards">
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-secondary">الموظفون</div><div class="h2 mb-0">{{ batch.employee_count }}</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-secondary">سجلات الأيام</div><div class="h2 mb-0">{{ batch.daily_record_count }}</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-secondary">المطابقون</div><div class="h2 text-success mb-0">{{ batch.matched_row_count }}</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-secondary">غير المطابقين</div><div class="h2 text-danger mb-0">{{ batch.unmatched_row_count }}</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-secondary">الأخطاء</div><div class="h2 text-danger mb-0">{{ batch.error_count }}</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-secondary">التحذيرات</div><div class="h2 text-warning mb-0">{{ batch.warning_count }}</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-secondary">صفوف المجموع</div><div class="h2 mb-0">{{ batch.summary_row_count }}</div></div></div></div>
+  <div class="col-6 col-md-3"><div class="card"><div class="card-body"><div class="text-secondary">المواقع المختلفة</div><div class="h2 mb-0">{{ batch.distinct_location_count }}</div></div></div></div>
+</div>

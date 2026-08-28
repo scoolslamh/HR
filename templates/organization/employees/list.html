@@ -1,0 +1,43 @@
+{% extends "core/base.html" %}
+
+{% block page_actions %}
+  <div class="col-auto"><a class="btn btn-outline-primary" href="{% url 'organization:employee_import_list' %}"><i data-lucide="file-up"></i> استيراد الموظفين</a></div>
+{% endblock %}
+
+{% block content %}
+  {% include "organization/employee_import/_messages.html" %}
+  <section class="card mb-4">
+    <form method="get" class="card-body">
+      <div class="row g-3 align-items-end">
+        <div class="col-12 col-lg-4"><label class="form-label" for="{{ filter_form.search.id_for_label }}">{{ filter_form.search.label }}</label>{{ filter_form.search }}</div>
+        <div class="col-12 col-md-4 col-lg-2"><label class="form-label" for="{{ filter_form.department.id_for_label }}">القسم</label>{{ filter_form.department }}</div>
+        <div class="col-12 col-md-4 col-lg-2"><label class="form-label" for="{{ filter_form.location.id_for_label }}">الموقع</label>{{ filter_form.location }}</div>
+        <div class="col-12 col-md-4 col-lg-2"><label class="form-label" for="{{ filter_form.status.id_for_label }}">الحالة</label>{{ filter_form.status }}</div>
+        <div class="col-12 col-lg-2 d-flex gap-2"><button class="btn btn-primary flex-fill" type="submit">تطبيق</button><a class="btn btn-outline-secondary" href="{% url 'organization:employee_list' %}">مسح</a></div>
+      </div>
+    </form>
+  </section>
+  <section class="card">
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-hover">
+        <thead><tr><th>الموظف</th><th>الرقم الوظيفي</th><th>السجل المدني</th><th>القسم الحالي</th><th>الموقع الأساسي</th><th>الحالة</th><th></th></tr></thead>
+        <tbody>
+          {% for employee in page_obj.object_list %}
+            <tr>
+              <th scope="row"><a href="{% url 'organization:employee_detail' employee.id %}">{{ employee.full_name_ar }}</a></th>
+              <td>{{ employee.employee_number|default:"—" }}</td>
+              <td><span dir="ltr">{{ employee.ui_national_id }}</span></td>
+              <td>{% if employee.ui_assignment %}{{ employee.ui_assignment.department.name_ar }}{% else %}—{% endif %}</td>
+              <td>{% if employee.ui_location %}{{ employee.ui_location.location.name_ar }}{% else %}—{% endif %}</td>
+              <td>{{ employee.get_employment_status_display }}</td>
+              <td><a class="btn btn-sm btn-outline-primary" href="{% url 'organization:employee_detail' employee.id %}">التفاصيل</a></td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="7" class="text-center text-secondary py-5">لا توجد نتائج ضمن النطاق المسموح.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% include "organization/_pagination.html" %}
+{% endblock %}

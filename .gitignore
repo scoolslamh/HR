@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.test-tmp/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Django
+*.sqlite3
+db.sqlite3
+media/
+staticfiles/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Uploaded Excel files
+uploads/
+media/**/*.xls
+media/**/*.xlsx
+media/**/*.xlsm
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk

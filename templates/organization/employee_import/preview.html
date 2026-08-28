@@ -1,0 +1,134 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block extra_css %}<link href="{% static 'organization/css/employee_import.css' %}" rel="stylesheet">{% endblock %}
+
+{% block page_actions %}
+  <div class="col-auto d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary" href="{% url 'organization:employee_import_detail' batch.id %}">
+      <i data-lucide="file-text" aria-hidden="true"></i>
+      تفاصيل الدفعة
+    </a>
+    <a class="btn btn-outline-primary" href="{% url 'organization:employee_import_errors' batch.id %}">
+      <i data-lucide="list-checks" aria-hidden="true"></i>
+      الأخطاء والتحذيرات
+      {% if batch.error_rows or batch.warning_rows %}<span class="badge bg-primary text-primary-fg ms-1">{{ batch.error_rows|add:batch.warning_rows }}</span>{% endif %}
+    </a>
+  </div>
+{% endblock %}
+
+{% block content %}
+  {% include "organization/employee_import/_messages.html" %}
+
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4 import-batch-heading">
+    <div class="min-w-0">
+      <div class="text-secondary small">الملف المرفوع</div>
+      <h2 class="h3 text-truncate mb-0 mt-1">{{ batch.ui_original_filename }}</h2>
+    </div>
+    {% include "core/components/badge.html" with text=batch.ui_status_label color=batch.ui_status_color badge_class="fs-6" only %}
+  </div>
+
+  {% include "organization/employee_import/_summary.html" %}
+
+  <div class="mt-4">
+    {% if batch.status == "approved" %}
+      {% include "core/components/alert.html" with type="success" icon="circle-check" title="دفعة معتمدة" message="تم تطبيق هذه الدفعة سابقًا، ولن ينفذها النظام مرة أخرى." only %}
+    {% elif batch.error_rows %}
+      {% include "core/components/alert.html" with type="danger" icon="circle-x" title="توجد أخطاء مانعة" message="راجع مركز الأخطاء وصحح الملف ثم ارفع دفعة جديدة. زر الاعتماد غير متاح لهذه الدفعة." only %}
+    {% elif requires_reference_creation %}
+      {% include "core/components/alert.html" with type="warning" icon="building-2" title="مراجع تنظيمية غير موجودة" message="لن ينشئ النظام الأقسام أو المواقع تلقائيًا. يتطلب اعتماد هذه الدفعة اختيار الإنشاء الصريح أدناه." only %}
+    {% elif batch.warning_rows %}
+      {% include "core/components/alert.html" with type="warning" icon="triangle-alert" title="توجد تحذيرات للمراجعة" message="يمكن اعتماد الدفعة بعد مراجعة التحذيرات والتأكد من صحة البيانات." only %}
+    {% endif %}
+  </div>
+
+  <section class="card mt-4">
+    <div class="card-header">
+      <div>
+        <h2 class="card-title">صفوف المعاينة</h2>
+        <p class="card-subtitle text-secondary mt-1">تُعرض بيانات منقحة فقط، والسجل المدني مقنّع دائمًا.</p>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-hover import-preview-table">
+        <thead>
+          <tr>
+            <th scope="col">الصف</th>
+            <th scope="col">الموظف</th>
+            <th scope="col">السجل المدني</th>
+            <th scope="col">القسم</th>
+            <th scope="col">الموقع</th>
+            <th scope="col">المدير المباشر</th>
+            <th scope="col">الإجراء</th>
+            <th scope="col">التحقق</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in display_rows %}
+            <tr>
+              <td>{{ row.row_number }}</td>
+              <th scope="row">{{ row.employee_name }}</th>
+              <td><span class="masked-value" dir="ltr">{{ row.national_id_masked }}</span></td>
+              <td>{{ row.department }}</td>
+              <td>{{ row.location }}</td>
+              <td>{{ row.manager }}</td>
+              <td>{% include "core/components/badge.html" with text=row.action_label color=row.action_color only %}</td>
+              <td>{% include "core/components/badge.html" with text=row.status_label color=row.status_color only %}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="8" class="text-center text-secondary py-5">لا توجد صفوف للعرض في هذه الدفعة.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% include "organization/employee_import/_pagination.html" %}
+
+  {% if can_approve %}
+    <section class="card approval-card mt-4" id="approval-section">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">الاعتماد النهائي</h2>
+          <p class="card-subtitle text-secondary mt-1">لا تُنشأ أو تُحدّث بيانات الموظفين إلا بعد هذا الإجراء.</p>
+        </div>
+      </div>
+      <form method="post" action="{% url 'organization:employee_import_approve' batch.id %}" novalidate>
+        {% csrf_token %}
+        <div class="card-body">
+          {% if approval_form.non_field_errors %}
+            <div class="alert alert-danger" role="alert">{{ approval_form.non_field_errors }}</div>
+          {% endif %}
+
+          <div class="form-check mb-3">
+            {{ approval_form.confirm_approval }}
+            <label class="form-check-label fw-semibold" for="{{ approval_form.confirm_approval.id_for_label }}">{{ approval_form.confirm_approval.label }}</label>
+            {% for error in approval_form.confirm_approval.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          </div>
+
+          <div class="reference-creation-option{% if requires_reference_creation %} reference-creation-required{% endif %}">
+            <div class="form-check">
+              {{ approval_form.create_missing_references }}
+              <label class="form-check-label fw-semibold" for="{{ approval_form.create_missing_references.id_for_label }}">{{ approval_form.create_missing_references.label }}</label>
+              <div class="form-hint">{{ approval_form.create_missing_references.help_text }}</div>
+              {% for error in approval_form.create_missing_references.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="card-footer d-flex flex-wrap align-items-center justify-content-between gap-3">
+          <span class="small text-secondary"><i data-lucide="lock-keyhole" aria-hidden="true"></i> يُنفذ الاعتماد داخل معاملة واحدة ويُمنع تكراره.</span>
+          <button class="btn btn-success" type="submit">
+            <i data-lucide="badge-check" aria-hidden="true"></i>
+            اعتماد الاستيراد
+          </button>
+        </div>
+      </form>
+    </section>
+  {% elif batch.status != "approved" %}
+    <div class="alert alert-secondary mt-4" role="status">
+      <div class="d-flex align-items-start gap-2">
+        <i data-lucide="lock" aria-hidden="true"></i>
+        <div><strong>الاعتماد غير متاح</strong><div class="text-secondary mt-1">يظهر زر الاعتماد فقط عندما تكون المعاينة جاهزة ولا تحتوي أخطاء مانعة.</div></div>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

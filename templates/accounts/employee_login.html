@@ -1,0 +1,25 @@
+{% extends "core/auth_base.html" %}
+
+{% block content %}
+  <div class="container container-tight py-4">
+    <div class="text-center mb-4">
+      <span class="brand-mark brand-mark-lg" aria-hidden="true"><i data-lucide="contact"></i></span>
+      <h1 class="h2 mt-3">بوابة الموظف</h1>
+      <p class="text-secondary">الدخول المبدئي باستخدام السجل المدني</p>
+    </div>
+    <section class="card card-md auth-card">
+      <div class="card-body">
+        {% if form.non_field_errors %}<div class="alert alert-danger">{% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}</div>{% endif %}
+        <form method="post" novalidate>
+          {% csrf_token %}
+          <label class="form-label" for="{{ form.national_id.id_for_label }}">{{ form.national_id.label }}</label>
+          {{ form.national_id }}
+          {% for error in form.national_id.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          <div class="form-hint mt-2">سيتم نقلك إلى بياناتك الشخصية فقط.</div>
+          <button class="btn btn-primary w-100 mt-4" type="submit"><i data-lucide="log-in"></i> دخول</button>
+        </form>
+        <div class="text-center mt-3"><a href="{% url 'core:login' %}">دخول مستخدمي الإدارة</a></div>
+      </div>
+    </section>
+  </div>
+{% endblock %}

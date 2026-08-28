@@ -1,0 +1,141 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block extra_css %}<link href="{% static 'organization/css/employee_import.css' %}" rel="stylesheet">{% endblock %}
+
+{% block page_actions %}
+  <div class="col-auto d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-primary" href="{% url 'organization:employee_import_preview' batch.id %}">
+      <i data-lucide="scan-search" aria-hidden="true"></i>
+      عرض المعاينة
+    </a>
+    <a class="btn btn-outline-secondary" href="{% url 'organization:employee_import_errors' batch.id %}">
+      <i data-lucide="list-checks" aria-hidden="true"></i>
+      الأخطاء والتحذيرات
+    </a>
+    {% if can_delete %}
+      <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#delete-batch-modal">
+        <i data-lucide="trash-2" aria-hidden="true"></i>
+        حذف الدفعة
+      </button>
+    {% endif %}
+  </div>
+
+{% endblock %}
+
+{% block content %}
+  {% include "organization/employee_import/_messages.html" %}
+
+  <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4 import-batch-heading">
+    <div class="min-w-0">
+      <div class="text-secondary small">ملف بيانات الموظفين</div>
+      <h2 class="h3 text-truncate mb-0 mt-1">{{ batch.ui_original_filename }}</h2>
+    </div>
+    {% include "core/components/badge.html" with text=batch.ui_status_label color=batch.ui_status_color badge_class="fs-6" only %}
+  </div>
+
+  {% include "organization/employee_import/_summary.html" %}
+
+  <div class="row row-cards mt-1">
+    <div class="col-12 col-xl-7">
+      <section class="card h-100">
+        <div class="card-header"><h2 class="card-title">بيانات الدفعة</h2></div>
+        <div class="card-body p-0">
+          <dl class="import-metadata mb-0">
+            <div><dt>اسم الملف</dt><dd>{{ batch.ui_original_filename }}</dd></div>
+            <div><dt>حجم الملف</dt><dd>{{ batch.file_size_bytes|filesizeformat }}</dd></div>
+            <div><dt>رافع الملف</dt><dd>{{ batch.ui_uploaded_by_name|default:"غير متاح" }}</dd></div>
+            <div><dt>وقت الرفع</dt><dd><time datetime="{{ batch.created_at|date:'c' }}">{{ batch.created_at|date:"Y/m/d، H:i" }}</time></dd></div>
+            <div><dt>المعتمد</dt><dd>{{ batch.ui_approved_by_name|default:"لم يعتمد بعد" }}</dd></div>
+            <div><dt>وقت الاعتماد</dt><dd>{% if batch.approved_at %}<time datetime="{{ batch.approved_at|date:'c' }}">{{ batch.approved_at|date:"Y/m/d، H:i" }}</time>{% else %}—{% endif %}</dd></div>
+          </dl>
+        </div>
+      </section>
+    </div>
+
+    <div class="col-12 col-xl-5">
+      <section class="card h-100">
+        <div class="card-header"><h2 class="card-title">مسار الدفعة</h2></div>
+        <div class="card-body">
+          <ol class="import-timeline mb-0">
+            <li class="is-complete">
+              <span aria-hidden="true"><i data-lucide="upload"></i></span>
+              <div><strong>رفع الملف</strong><small>حُفظ الملف باسم تخزين آمن.</small></div>
+            </li>
+            <li class="{% if batch.status != 'uploaded' %}is-complete{% endif %}">
+              <span aria-hidden="true"><i data-lucide="scan-search"></i></span>
+              <div><strong>التحقق والمعاينة</strong><small>حُفظت الصفوف المنقحة والأخطاء دون تعديل الموظفين.</small></div>
+            </li>
+            <li class="{% if batch.status == 'approved' %}is-complete{% endif %}">
+              <span aria-hidden="true"><i data-lucide="badge-check"></i></span>
+              <div><strong>الاعتماد النهائي</strong><small>{% if batch.status == 'approved' %}اكتمل الاعتماد بنجاح.{% elif can_approve %}الدفعة جاهزة للاعتماد.{% else %}بانتظار معالجة الأخطاء أو اكتمال التحقق.{% endif %}</small></div>
+            </li>
+          </ol>
+        </div>
+        {% if can_approve %}
+          <div class="card-footer text-end">
+            <a class="btn btn-success" href="{% url 'organization:employee_import_preview' batch.id %}#approval-section">
+              مراجعة واعتماد الدفعة
+            </a>
+          </div>
+        {% endif %}
+      </section>
+    </div>
+
+    <div class="col-12">
+      <section class="card">
+        <div class="card-header d-flex align-items-center justify-content-between gap-3">
+          <div>
+            <h2 class="card-title">أحدث الأخطاء والتحذيرات</h2>
+            <p class="card-subtitle text-secondary mt-1">لا تظهر القيم الحساسة أو الحمولة الأصلية.</p>
+          </div>
+          {% if recent_errors %}<a class="btn btn-sm btn-outline-primary" href="{% url 'organization:employee_import_errors' batch.id %}">عرض الكل</a>{% endif %}
+        </div>
+        <div class="table-responsive">
+          <table class="table table-vcenter card-table">
+            <thead><tr><th scope="col">الصف</th><th scope="col">الدرجة</th><th scope="col">الحقل</th><th scope="col">الرسالة</th></tr></thead>
+            <tbody>
+              {% for item in recent_errors %}
+                <tr>
+                  <td>{% if item.row %}{{ item.row.row_number }}{% else %}عام{% endif %}</td>
+                  <td>{% if item.severity == 'error' %}{% include "core/components/badge.html" with text="خطأ مانع" color="red" only %}{% else %}{% include "core/components/badge.html" with text="تحذير" color="yellow" only %}{% endif %}</td>
+                  <td>{{ item.field_name|default:"—" }}</td>
+                  <td class="text-wrap">{{ item.message_ar }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="4" class="text-center text-secondary py-5">لا توجد أخطاء أو تحذيرات مسجلة.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  {% if can_delete %}
+    <div class="modal modal-blur fade" id="delete-batch-modal" tabindex="-1" aria-labelledby="delete-batch-title" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title" id="delete-batch-title">تأكيد حذف الدفعة</h2>
+            <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="إغلاق"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-2">سيُحذف ملف Excel وصفوف المعاينة والأخطاء المرتبطة بهذه الدفعة نهائيًا.</p>
+            <p class="text-danger fw-semibold mb-0">لا يمكن التراجع عن هذا الإجراء.</p>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-link link-secondary" type="button" data-bs-dismiss="modal">إلغاء</button>
+            <form method="post" action="{% url 'organization:employee_import_delete' batch.id %}">
+              {% csrf_token %}
+              <button class="btn btn-danger" type="submit">
+                <i data-lucide="trash-2" aria-hidden="true"></i>
+                حذف الدفعة
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,39 @@
+{% extends "core/base.html" %}
+
+{% block page_actions %}
+  {% if can_edit %}<div class="col-auto"><a class="btn btn-primary" href="{% url 'organization:employee_edit' employee.id %}"><i data-lucide="pencil"></i> تعديل الموظف</a></div>{% endif %}
+{% endblock %}
+
+{% block content %}
+  {% include "organization/employee_import/_messages.html" %}
+  <div class="row row-cards">
+    <div class="col-12 col-lg-6">
+      <section class="card h-100"><div class="card-header"><h2 class="card-title">البيانات الأساسية</h2></div><div class="card-body"><dl class="row mb-0">
+        <dt class="col-5">الاسم</dt><dd class="col-7">{{ employee.full_name_ar }}</dd>
+        <dt class="col-5">الرقم الوظيفي</dt><dd class="col-7">{{ employee.employee_number|default:"—" }}</dd>
+        <dt class="col-5">السجل المدني</dt><dd class="col-7"><span dir="ltr">{{ national_id_masked }}</span></dd>
+        <dt class="col-5">الجوال</dt><dd class="col-7"><span dir="ltr">{{ employee.mobile_masked|default:"—" }}</span></dd>
+        <dt class="col-5">الحالة</dt><dd class="col-7">{{ employee.get_employment_status_display }}</dd>
+        <dt class="col-5">آخر تحديث</dt><dd class="col-7">{{ employee.updated_at|date:"Y/m/d، H:i" }}</dd>
+      </dl></div></section>
+    </div>
+    <div class="col-12 col-lg-6">
+      <section class="card h-100"><div class="card-header"><h2 class="card-title">الارتباط الحالي</h2></div><div class="card-body"><dl class="row mb-0">
+        <dt class="col-5">القسم</dt><dd class="col-7">{% if current_assignment %}{{ current_assignment.department.name_ar }}{% else %}—{% endif %}</dd>
+        <dt class="col-5">الموقع الأساسي</dt><dd class="col-7">{% if current_location %}{{ current_location.location.name_ar }}{% else %}—{% endif %}</dd>
+        <dt class="col-5">المدير المباشر</dt><dd class="col-7">{% if current_assignment.manager_employee %}{{ current_assignment.manager_employee.full_name_ar }}{% else %}—{% endif %}</dd>
+        <dt class="col-5">المسمى الوظيفي</dt><dd class="col-7">{% if current_assignment.job_title %}{{ current_assignment.job_title.name_ar }}{% else %}—{% endif %}</dd>
+      </dl></div></section>
+    </div>
+    <div class="col-12">
+      <section class="card"><div class="card-header"><h2 class="card-title">تاريخ الأقسام</h2></div><div class="table-responsive"><table class="table card-table"><thead><tr><th>القسم</th><th>المدير</th><th>من</th><th>إلى</th></tr></thead><tbody>
+        {% for item in assignment_history %}<tr><td>{{ item.department.name_ar }}</td><td>{{ item.manager_employee.full_name_ar|default:"—" }}</td><td>{{ item.valid_from|date:"Y/m/d" }}</td><td>{{ item.valid_to|date:"Y/m/d"|default:"حالي" }}</td></tr>{% empty %}<tr><td colspan="4" class="text-center text-secondary">لا يوجد تاريخ مسجل.</td></tr>{% endfor %}
+      </tbody></table></div></section>
+    </div>
+    <div class="col-12">
+      <section class="card"><div class="card-header"><h2 class="card-title">تاريخ المواقع</h2></div><div class="table-responsive"><table class="table card-table"><thead><tr><th>الموقع</th><th>من</th><th>إلى</th></tr></thead><tbody>
+        {% for item in location_history %}<tr><td>{{ item.location.name_ar }}</td><td>{{ item.valid_from|date:"Y/m/d" }}</td><td>{{ item.valid_to|date:"Y/m/d"|default:"حالي" }}</td></tr>{% empty %}<tr><td colspan="3" class="text-center text-secondary">لا يوجد تاريخ مسجل.</td></tr>{% endfor %}
+      </tbody></table></div></section>
+    </div>
+  </div>
+{% endblock %}

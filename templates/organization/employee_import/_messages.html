@@ -1,0 +1,12 @@
+{% if messages %}
+  <div class="mb-4" aria-live="polite">
+    {% for message in messages %}
+      <div class="alert alert-{% if message.tags == 'error' %}danger{% else %}{{ message.tags|default:'info' }}{% endif %} mb-2" role="alert">
+        <div class="d-flex align-items-start gap-2">
+          <i data-lucide="{% if message.tags == 'success' %}circle-check{% elif message.tags == 'error' %}circle-alert{% else %}info{% endif %}" aria-hidden="true"></i>
+          <span>{{ message }}</span>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}

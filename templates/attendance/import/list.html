@@ -1,0 +1,43 @@
+{% extends "core/base.html" %}
+{% block page_actions %}<a class="btn btn-primary" href="{% url 'attendance:import_upload' %}"><i data-lucide="upload"></i> رفع ملف أسبوعي</a>{% endblock %}
+{% block content %}
+{% include "attendance/import/_messages.html" %}
+<section class="card">
+  <div class="card-header"><div><h2 class="card-title">دفعات استيراد الحضور</h2><p class="text-secondary mb-0">إدارة ملفات الحضور من الرفع حتى الاعتماد والأرشفة.</p></div></div>
+  <div class="table-responsive"><table class="table table-vcenter card-table table-hover"><thead><tr><th>الملف</th><th>الفترة</th><th>الحالة</th><th>السجلات</th><th>المطابقة</th><th>تاريخ الرفع</th><th></th></tr></thead><tbody>
+  {% for batch in page_obj.object_list %}
+    <tr{% if batch.archived_at %} class="table-secondary"{% endif %}>
+      <th><a href="{% url 'attendance:import_detail' batch.id %}">{{ batch.ui_display_name }}</a><div class="small text-secondary">الأصلي: {{ batch.ui_original_filename }} · {{ batch.file_size_bytes|filesizeformat }}</div></th>
+      <td><div>{{ batch.ui_period_name }}</div>{% if batch.ui_source_period_title %}<span class="small text-secondary">{{ batch.ui_source_period_title }}</span>{% endif %}</td>
+      <td>{% include "core/components/badge.html" with text=batch.ui_status_label color=batch.ui_status_color only %}</td>
+      <td>{{ batch.daily_record_count }}</td><td>{{ batch.matched_row_count }} / {{ batch.daily_record_count }}</td>
+      <td>{{ batch.created_at|date:"Y/m/d، H:i" }}</td>
+      <td><div class="d-flex flex-wrap gap-1"><a class="btn btn-sm btn-outline-primary" href="{% url 'attendance:import_detail' batch.id %}">عرض</a>{% if is_system_admin %}<button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#manage-{{ batch.id }}" aria-expanded="false">إدارة</button>{% endif %}</div></td>
+    </tr>
+    {% if is_system_admin %}
+      <tr class="collapse" id="manage-{{ batch.id }}"><td colspan="7" class="bg-light-subtle">
+        <div class="row g-3 py-2">
+          <div class="col-12 col-xl-6">
+            <form method="post" action="{% url 'attendance:import_update' batch.id %}" class="border rounded p-3 h-100">{% csrf_token %}
+              <h3 class="h4">تعديل بيانات العرض</h3>
+              <div class="row g-2"><div class="col-md-6"><label class="form-label">الاسم الظاهر</label><input class="form-control" name="display_name" maxlength="255" required value="{{ batch.ui_display_name }}"></div><div class="col-md-6"><label class="form-label">عنوان الفترة</label><input class="form-control" name="source_period_title" maxlength="255" value="{{ batch.ui_source_period_title }}"></div><div class="col-12"><label class="form-label">سبب التعديل</label><textarea class="form-control" name="reason" rows="2" minlength="5" required></textarea></div></div>
+              <button class="btn btn-primary btn-sm mt-3" type="submit">حفظ التعديل</button>
+            </form>
+          </div>
+          <div class="col-12 col-xl-6">
+            {% if batch.archived_at %}
+              <form method="post" action="{% url 'attendance:import_restore' batch.id %}" class="border rounded p-3 h-100">{% csrf_token %}<h3 class="h4">استعادة الملف</h3><p class="text-secondary">سبب الأرشفة: {{ batch.archive_reason }}</p><label class="form-label">سبب الاستعادة</label><textarea class="form-control" name="reason" rows="2" minlength="5" required></textarea><button class="btn btn-success btn-sm mt-3" type="submit">استعادة إلى التقارير</button></form>
+            {% elif batch.status == 'approved' %}
+              <form method="post" action="{% url 'attendance:import_archive' batch.id %}" class="border border-warning rounded p-3 h-100" onsubmit="return confirm('ستُستبعد بيانات هذا الملف من التقارير. هل تريد المتابعة؟');">{% csrf_token %}<h3 class="h4">أرشفة الملف المعتمد</h3><p class="text-secondary">تبقى البيانات محفوظة ويمكن استعادتها.</p><label class="form-label">سبب الأرشفة</label><textarea class="form-control" name="reason" rows="2" minlength="5" required></textarea><button class="btn btn-warning btn-sm mt-3" type="submit">أرشفة واستبعاد</button></form>
+            {% elif batch.ui_can_delete %}
+              <form method="post" action="{% url 'attendance:import_delete' batch.id %}" class="border border-danger rounded p-3 h-100" onsubmit="return confirm('سيُحذف الملف غير المعتمد وبيانات المعاينة نهائيًا. هل تريد المتابعة؟');">{% csrf_token %}<h3 class="h4 text-danger">حذف كامل</h3><label class="form-label">اكتب اسم الملف للتأكيد</label><input class="form-control" name="confirmation" required autocomplete="off" placeholder="{{ batch.ui_display_name }}"><div class="form-hint">{{ batch.ui_display_name }}</div><label class="form-label mt-2">سبب الحذف</label><textarea class="form-control" name="reason" rows="2" minlength="5" required></textarea><button class="btn btn-danger btn-sm mt-3" type="submit">حذف نهائي</button></form>
+            {% endif %}
+          </div>
+        </div>
+      </td></tr>
+    {% endif %}
+  {% empty %}<tr><td colspan="7" class="text-center py-5 text-secondary">لا توجد دفعات حضور بعد.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+{% include "attendance/import/_pagination.html" %}
+{% endblock %}

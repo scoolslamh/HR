@@ -1,0 +1,18 @@
+{% if items %}
+<nav class="application-breadcrumb" aria-label="مسار التنقل">
+  <ol class="breadcrumb breadcrumb-arrows mb-0">
+    {% for item in items %}
+      <li class="breadcrumb-item{% if forloop.last %} active{% endif %}"{% if forloop.last %} aria-current="page"{% endif %}>
+        {% if item.url_name and not forloop.last %}
+          <a href="{% url item.url_name %}">
+            {% if forloop.first %}<i data-lucide="house" aria-hidden="true"></i>{% endif %}
+            {{ item.label }}
+          </a>
+        {% else %}
+          {{ item.label }}
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+</nav>
+{% endif %}

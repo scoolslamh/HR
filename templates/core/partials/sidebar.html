@@ -1,0 +1,31 @@
+<aside class="navbar navbar-vertical navbar-expand-lg application-sidebar" data-bs-theme="dark" aria-label="التنقل الرئيسي">
+  <div class="container-fluid">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar-menu" aria-controls="sidebar-menu" aria-expanded="false" aria-label="فتح القائمة الرئيسية">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <a class="navbar-brand navbar-brand-autodark" href="{% if employee_portal_only %}{% url 'violations:employee_portal' %}{% else %}{% url 'core:dashboard' %}{% endif %}" aria-label="العودة إلى لوحة المعلومات">
+      <span class="brand-mark" aria-hidden="true"><i data-lucide="fingerprint"></i></span>
+      <span class="brand-copy">
+        <span class="brand-title">منصة الحضور والانضباط</span>
+        <span class="brand-subtitle">إدارة وتحليل الحضور والمخالفات والمعالجات</span>
+      </span>
+    </a>
+    <div class="collapse navbar-collapse" id="sidebar-menu">
+      <ul class="navbar-nav pt-lg-3">
+        {% for group in navigation_groups %}
+          <li class="nav-section" aria-hidden="true">{{ group.label }}</li>
+          {% for item in group.items %}
+            <li class="nav-item{% if request.resolver_match.url_name == item.name or request.resolver_match.url_name in item.active_url_names %} active{% endif %}">
+              <a class="nav-link" href="{% url item.url_name %}"{% if request.resolver_match.url_name == item.name or request.resolver_match.url_name in item.active_url_names %} aria-current="page"{% endif %}>
+                <span class="nav-link-icon d-md-none d-lg-inline-block" aria-hidden="true">
+                  <i data-lucide="{{ item.icon }}"></i>
+                </span>
+                <span class="nav-link-title">{{ item.label }}</span>
+              </a>
+            </li>
+          {% endfor %}
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</aside>

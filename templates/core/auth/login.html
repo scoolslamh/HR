@@ -1,0 +1,59 @@
+{% extends "core/auth_base.html" %}
+
+{% block content %}
+  <div class="container container-tight py-4">
+    <div class="text-center mb-4">
+      <a class="auth-brand" href="{% url 'core:dashboard' %}" aria-label="منصة الحضور والانضباط الوظيفي">
+        <span class="brand-mark brand-mark-lg" aria-hidden="true"><i data-lucide="fingerprint"></i></span>
+        <span>
+          <span class="auth-brand-title">منصة الحضور والانضباط الوظيفي</span>
+          <span class="auth-brand-subtitle">إدارة وتحليل الحضور والمخالفات والمعالجات</span>
+        </span>
+      </a>
+    </div>
+    <section class="card card-md auth-card">
+      <div class="card-body">
+        <h1 class="h2 text-center mb-2">تسجيل الدخول</h1>
+        <p class="text-secondary text-center mb-4">أدخل بيانات حسابك للوصول إلى النظام</p>
+        {% if form.non_field_errors %}
+          <div class="alert alert-danger" role="alert">
+            {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+          </div>
+        {% endif %}
+        <form method="post" aria-label="نموذج تسجيل الدخول" novalidate>
+          {% csrf_token %}
+          <div class="mb-3">
+            <label class="form-label" for="username">اسم المستخدم</label>
+            <div class="input-icon">
+              <span class="input-icon-addon" aria-hidden="true"><i data-lucide="user-round"></i></span>
+              {{ form.username }}
+            </div>
+            {% for error in form.username.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          </div>
+          <div class="mb-2">
+            <label class="form-label" for="password">كلمة المرور</label>
+            <div class="input-icon">
+              <span class="input-icon-addon" aria-hidden="true"><i data-lucide="lock-keyhole"></i></span>
+              {{ form.password }}
+            </div>
+            {% for error in form.password.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+          </div>
+          <div class="d-flex justify-content-between align-items-center mt-3 mb-4">
+            <label class="form-check mb-0">
+              {{ form.remember_me }}
+              <span class="form-check-label">{{ form.remember_me.label }}</span>
+            </label>
+            <span class="small text-secondary">استعادة الوصول غير متاحة حاليًا</span>
+          </div>
+          <button class="btn btn-primary w-100" type="submit">
+            <i data-lucide="log-in" aria-hidden="true"></i>
+            دخول
+          </button>
+          <a class="btn btn-outline-secondary w-100 mt-3" href="{% url 'accounts:employee_login' %}">
+            دخول الموظف بالسجل المدني
+          </a>
+        </form>
+      </div>
+    </section>
+  </div>
+{% endblock %}

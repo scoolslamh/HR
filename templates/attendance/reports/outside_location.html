@@ -1,0 +1,33 @@
+{% extends "core/base.html" %}
+{% block content %}
+<div class="alert alert-warning"><strong>تنبيه فقط:</strong> يعرض التقرير اختلاف موقع الحضور عن موقع الانصراف، ولا ينشئ مخالفة أو طلب إفادة للموظف.</div>
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="post" class="row g-3 align-items-end">
+      {% csrf_token %}
+      <div class="col-md-4"><label class="form-label">البحث بالاسم أو السجل المدني</label><input class="form-control" type="search" name="employee_search" value="{{ employee_search }}" autocomplete="off" placeholder="اسم الموظف أو السجل المدني"></div>
+      <div class="col-md-4"><label class="form-label">الموظف</label><select name="employee" class="form-select"><option value="">الجميع</option>{% for item in employees %}<option value="{{ item.id }}" {% if filters.employee == item.id|stringformat:'s' %}selected{% endif %}>{{ item.full_name_ar }} — {{ item.ui_national_id }} — {{ item.ui_department }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label">القسم</label><select name="department" class="form-select"><option value="">الجميع</option>{% for item in departments %}<option value="{{ item.id }}" {% if filters.department == item.id|stringformat:'s' %}selected{% endif %}>{{ item.name_ar }}</option>{% endfor %}</select></div>
+      <div class="col-md-2"><label class="form-label">من</label><input class="form-control" type="date" name="date_from" value="{{ filters.date_from }}"></div>
+      <div class="col-md-2"><label class="form-label">إلى</label><input class="form-control" type="date" name="date_to" value="{{ filters.date_to }}"></div>
+      <div class="col-md-2"><button class="btn btn-primary w-100">تطبيق</button></div>
+    </form>
+  </div>
+</div>
+{% if details_employee %}
+<div class="d-flex align-items-center justify-content-between gap-3 mb-3">
+  <h2 class="h3 mb-0">{{ details_label }} — {{ details_employee.full_name_ar }}</h2>
+  <a class="btn btn-outline-secondary" href="{% url 'attendance:outside_location_report' %}?{% if filters.employee %}employee={{ filters.employee }}&amp;{% endif %}{% if filters.department %}department={{ filters.department }}&amp;{% endif %}{% if filters.date_from %}date_from={{ filters.date_from }}&amp;{% endif %}{% if filters.date_to %}date_to={{ filters.date_to }}{% endif %}">العودة إلى الملخص</a>
+</div>
+<div class="card"><div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th>التاريخ</th><th>الموظف</th><th>السجل المدني</th><th>القسم</th><th>حالة الملف</th><th>مكان الحضور</th><th>مكان الانصراف</th><th>التنبيه</th></tr></thead><tbody>{% for row in page_obj %}<tr><td>{{ row.attendance_date|date:"Y/m/d" }}</td><td class="fw-semibold">{{ row.employee.full_name_ar }}</td><td dir="ltr">{{ row.employee.ui_national_id }}</td><td>{{ row.ui_department_name }}</td><td><span class="badge bg-blue-lt">{{ row.source_status|default:"—" }}</span></td><td>{{ row.check_in_location|default:"—" }}</td><td>{{ row.check_out_location|default:"—" }}</td><td><span class="badge bg-yellow-lt">{{ row.ui_location_status }}</span></td></tr>{% empty %}<tr><td colspan="8" class="text-center text-secondary py-5">لا توجد سجلات ضمن المرشحات المحددة.</td></tr>{% endfor %}</tbody></table></div>{% include "attendance/import/_pagination.html" with page_obj=page_obj %}</div>
+{% else %}
+<div class="card"><div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th>الموظف</th><th>السجل المدني</th><th>القسم</th><th>أيام اختلاف الموقعين</th><th>عدد أيام الغياب</th><th>عدد الانصراف التلقائي</th><th>عدد الاستئذانات</th></tr></thead><tbody>
+{% for row in page_obj %}<tr><td class="fw-semibold">{{ row.employee__full_name_ar }}</td><td dir="ltr">{{ row.national_id }}</td><td>{{ row.department_name }}</td>
+<td><a class="badge bg-red-lt text-decoration-none" href="{% url 'attendance:outside_location_report' %}?details=outside&amp;details_employee={{ row.employee_id }}{% if filters.department %}&amp;department={{ filters.department }}{% endif %}{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">{{ row.violation_days }} يوم</a></td>
+<td><a class="badge bg-red-lt text-decoration-none" href="{% url 'attendance:outside_location_report' %}?details=absent&amp;details_employee={{ row.employee_id }}{% if filters.department %}&amp;department={{ filters.department }}{% endif %}{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">{{ row.absence_days }} يوم</a></td>
+<td><a class="badge bg-orange-lt text-decoration-none" href="{% url 'attendance:outside_location_report' %}?details=automatic_checkout&amp;details_employee={{ row.employee_id }}{% if filters.department %}&amp;department={{ filters.department }}{% endif %}{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">{{ row.automatic_checkout_days }}</a></td>
+<td><a class="badge bg-blue-lt text-decoration-none" href="{% url 'attendance:outside_location_report' %}?details=permissions&amp;details_employee={{ row.employee_id }}{% if filters.department %}&amp;department={{ filters.department }}{% endif %}{% if filters.date_from %}&amp;date_from={{ filters.date_from }}{% endif %}{% if filters.date_to %}&amp;date_to={{ filters.date_to }}{% endif %}">{{ row.permission_days }}</a></td></tr>
+{% empty %}<tr><td colspan="7" class="text-center text-secondary py-5">لا توجد حالات ضمن المرشحات المحددة.</td></tr>{% endfor %}
+</tbody></table></div>{% include "attendance/import/_pagination.html" with page_obj=page_obj %}</div>
+{% endif %}
+{% endblock %}

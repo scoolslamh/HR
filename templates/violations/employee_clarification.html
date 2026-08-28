@@ -1,0 +1,15 @@
+{% extends "core/base.html" %}
+{% block content %}
+  <div class="row row-cards"><div class="col-12 col-lg-7"><section class="card"><div class="card-header"><h2 class="card-title">{{ clarification.get_kind_display }}</h2></div><div class="card-body"><dl class="row">
+    <dt class="col-5">التاريخ</dt><dd class="col-7">{{ clarification.attendance_result.attendance_date|date:"Y/m/d" }}</dd>
+    <dt class="col-5">الحالة</dt><dd class="col-7">{{ clarification.get_status_display }}</dd>
+    <dt class="col-5">وقت الحضور</dt><dd class="col-7">{{ clarification.attendance_result.first_check_in_at|date:"H:i"|default:"—" }}</dd>
+    <dt class="col-5">وقت الانصراف</dt><dd class="col-7">{{ clarification.attendance_result.last_check_out_at|date:"H:i"|default:"—" }}</dd>
+    <dt class="col-5">حالة الموقع</dt><dd class="col-7">{{ clarification.attendance_result.get_location_status_display }}</dd>
+    {% if clarification.review_comment %}<dt class="col-5">تعليق رئيس القسم</dt><dd class="col-7">{{ clarification.review_comment }}</dd>{% endif %}
+  </dl></div></section></div>
+  <div class="col-12 col-lg-5"><section class="card"><div class="card-header"><h2 class="card-title">إفادة الموظف</h2></div><div class="card-body">
+    {% if editable %}<form method="post" enctype="multipart/form-data" novalidate>{% csrf_token %}{{ form.non_field_errors }}<div class="mb-3">{{ form.explanation.label_tag }}{{ form.explanation }}{{ form.explanation.errors }}</div><div class="mb-3">{{ form.evidence.label_tag }}{{ form.evidence }}<div class="form-hint">{{ form.evidence.help_text }}</div>{{ form.evidence.errors }}</div><button class="btn btn-primary w-100">إرسال الإفادة</button></form>{% else %}<p>{{ clarification.employee_explanation|default:"لم تسجل إفادة بعد." }}</p>{% endif %}
+    {% for evidence in clarification.evidence_files.all %}<a class="btn btn-sm btn-outline-secondary mt-2" href="{% url 'violations:evidence_download' evidence.id %}"><i data-lucide="paperclip"></i> {{ evidence.original_filename }}</a>{% endfor %}
+  </div></section></div></div>
+{% endblock %}

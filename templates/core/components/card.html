@@ -1,0 +1,12 @@
+<section class="card {{ card_class|default:'' }}">
+  {% if title or subtitle %}
+    <div class="card-header">
+      <div>
+        {% if title %}<h2 class="card-title">{{ title }}</h2>{% endif %}
+        {% if subtitle %}<p class="card-subtitle text-secondary mt-1">{{ subtitle }}</p>{% endif %}
+      </div>
+    </div>
+  {% endif %}
+  <div class="card-body">{{ body|default:"" }}</div>
+  {% if footer %}<div class="card-footer">{{ footer }}</div>{% endif %}
+</section>

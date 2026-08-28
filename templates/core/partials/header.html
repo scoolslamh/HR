@@ -1,0 +1,41 @@
+<header class="navbar navbar-expand-md d-print-none application-header">
+  <div class="container-xl header-layout">
+    <div class="global-search order-3 order-md-1" role="search">
+      <label class="visually-hidden" for="global-search">البحث العام</label>
+      <span class="global-search-icon" aria-hidden="true"><i data-lucide="search"></i></span>
+      <input class="form-control" id="global-search" type="search" placeholder="{% if employee_portal_only %}ابحث في سجلاتي...{% else %}ابحث عن موظف أو قسم أو مخالفة...{% endif %}" autocomplete="off">
+      <kbd class="global-search-shortcut d-none d-lg-inline-flex" aria-hidden="true">/</kbd>
+    </div>
+    <div class="navbar-nav flex-row order-2 order-md-last align-items-center gap-2 ms-auto">
+      <button class="notification-button" type="button" aria-label="لديك 3 إشعارات" title="الإشعارات">
+        <i data-lucide="bell" aria-hidden="true"></i>
+        <span class="notification-count" aria-hidden="true">3</span>
+      </button>
+      <div class="nav-item dropdown">
+        <button class="user-menu-button" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+          <span class="avatar avatar-sm user-avatar" aria-hidden="true">{{ request.user.username|slice:":2" }}</span>
+          <span class="d-none d-sm-block text-start user-copy">
+            <span class="d-block fw-semibold user-name">{{ request.user.get_full_name|default:request.user.username }}</span>
+            <span class="d-block small text-secondary user-role">{% if request.user.is_superuser %}مدير النظام{% elif employee_portal_only %}موظف{% else %}مستخدم النظام{% endif %}</span>
+          </span>
+          <i class="d-none d-md-block user-chevron" data-lucide="chevron-down" aria-hidden="true"></i>
+        </button>
+        <div class="dropdown-menu dropdown-menu-end dropdown-menu-arrow">
+          <span class="dropdown-header">الحساب</span>
+          <button class="dropdown-item" type="button" disabled>
+            <i data-lucide="user-round" aria-hidden="true"></i>
+            الملف الشخصي
+          </button>
+          <div class="dropdown-divider"></div>
+          <form method="post" action="{% url 'core:logout' %}">
+            {% csrf_token %}
+            <button class="dropdown-item" type="submit">
+              <i data-lucide="log-out" aria-hidden="true"></i>
+              تسجيل الخروج
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>

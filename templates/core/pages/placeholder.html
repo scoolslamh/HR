@@ -1,0 +1,26 @@
+{% extends "core/base.html" %}
+
+{% block content %}
+  <div class="row justify-content-center mt-1">
+    <div class="col-12 col-xl-9">
+      <section class="card placeholder-card">
+        <div class="card-body text-center py-5 py-md-6">
+          <span class="avatar avatar-xl rounded-circle bg-primary-lt text-primary mb-4" aria-hidden="true">
+            <i data-lucide="panels-top-left"></i>
+          </span>
+          <h2 class="h2 mb-3">{{ page_title }}</h2>
+          <p class="text-secondary mx-auto mb-4 placeholder-description">{{ page_description }}</p>
+          {% include "core/components/badge.html" with text="صفحة توضيحية" color="primary" badge_class="mb-4" only %}
+          <p class="mb-0">هذه الصفحة جاهزة للمرحلة الوظيفية القادمة.</p>
+          <p class="small text-secondary mt-2 mb-0">لم تتم إضافة عمليات أو بيانات أو صلاحيات في هذه المرحلة.</p>
+        </div>
+        <div class="card-footer bg-transparent text-center">
+          <a class="btn btn-outline-primary" href="{% url 'core:dashboard' %}">
+            <i data-lucide="arrow-right" aria-hidden="true"></i>
+            العودة إلى لوحة المعلومات
+          </a>
+        </div>
+      </section>
+    </div>
+  </div>
+{% endblock %}

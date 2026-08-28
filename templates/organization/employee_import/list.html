@@ -1,0 +1,98 @@
+{% extends "core/base.html" %}
+{% load static %}
+
+{% block extra_css %}<link href="{% static 'organization/css/employee_import.css' %}" rel="stylesheet">{% endblock %}
+
+{% block page_actions %}
+  <div class="col-auto d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-primary" href="{% url 'organization:employee_import_template' %}">
+      <i data-lucide="file-down" aria-hidden="true"></i>
+      تنزيل القالب
+    </a>
+    <a class="btn btn-primary" href="{% url 'organization:employee_import_upload' %}">
+      <i data-lucide="upload" aria-hidden="true"></i>
+      رفع ملف جديد
+    </a>
+    {% if is_system_admin %}<button class="btn btn-success" type="button" data-bs-toggle="collapse" data-bs-target="#manual-employee-form"><i data-lucide="user-plus"></i> إضافة موظف</button>{% endif %}
+  </div>
+{% endblock %}
+
+{% block content %}
+  {% include "organization/employee_import/_messages.html" %}
+
+  {% if is_system_admin %}
+    <section class="card collapse mb-4" id="manual-employee-form">
+      <div class="card-header"><div><h2 class="card-title">إضافة موظف يدويًا</h2><p class="card-subtitle text-secondary mt-1">تُحفظ الهوية بصورة مشفرة ويُنشأ الإسناد الوظيفي ومكان التوقيع من تاريخ اليوم.</p></div></div>
+      <form method="post" action="{% url 'organization:employee_manual_create' %}">{% csrf_token %}<div class="card-body"><div class="row g-3">
+        {% for field in manual_employee_form %}<div class="col-12 col-md-6 col-xl-4"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>{% endfor %}
+      </div></div><div class="card-footer d-flex justify-content-end"><button class="btn btn-success" type="submit">حفظ الموظف</button></div></form>
+    </section>
+  {% endif %}
+
+  <section class="card">
+    <div class="card-header">
+      <div>
+        <h2 class="card-title">دفعات الاستيراد</h2>
+        <p class="card-subtitle text-secondary mt-1">كل دفعة تحفظ معاينتها ونتيجة اعتمادها بصورة مستقلة.</p>
+      </div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-vcenter card-table table-hover import-batches-table">
+        <thead>
+          <tr>
+            <th scope="col">الملف</th>
+            <th scope="col">الحالة</th>
+            <th scope="col">الصفوف</th>
+            <th scope="col">رافع الملف</th>
+            <th scope="col">تاريخ الرفع</th>
+            <th scope="col" class="w-1"><span class="visually-hidden">الإجراءات</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for batch in page_obj.object_list %}
+            <tr>
+              <th scope="row">
+                <a class="text-reset" href="{% url 'organization:employee_import_detail' batch.id %}">{{ batch.ui_original_filename }}</a>
+                <div class="small text-secondary mt-1">{{ batch.file_size_bytes|filesizeformat }}</div>
+              </th>
+              <td>{% include "core/components/badge.html" with text=batch.ui_status_label color=batch.ui_status_color only %}</td>
+              <td>{{ batch.total_rows }}</td>
+              <td>{{ batch.ui_uploaded_by_name|default:"—" }}</td>
+              <td><time datetime="{{ batch.created_at|date:'c' }}">{{ batch.created_at|date:"Y/m/d، H:i" }}</time></td>
+              <td>
+                <a class="btn btn-sm btn-outline-primary" href="{% url 'organization:employee_import_detail' batch.id %}" aria-label="عرض تفاصيل {{ batch.ui_original_filename }}">
+                  عرض
+                </a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="6" class="text-center py-6">
+                <span class="avatar avatar-lg bg-blue-lt text-blue mb-3" aria-hidden="true"><i data-lucide="files"></i></span>
+                <h3 class="h4">لا توجد دفعات استيراد بعد</h3>
+                <p class="text-secondary mb-3">ابدأ بتنزيل القالب المعتمد ثم ارفع ملف بيانات الموظفين.</p>
+                <a class="btn btn-primary" href="{% url 'organization:employee_import_upload' %}">رفع أول ملف</a>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% include "organization/employee_import/_pagination.html" %}
+
+  {% if is_system_admin %}
+    <section class="card mt-4">
+      <div class="card-header"><div><h2 class="card-title">الإدارة الجماعية للموظفين</h2><p class="card-subtitle text-secondary mt-1">الحذف من التشغيل يتم بالأرشفة للحفاظ على الحضور والتاريخ الوظيفي، ويمكن الاستعادة لاحقًا.</p></div></div>
+      <div class="card-body border-bottom"><form method="get" class="row g-2 align-items-end"><div class="col-md-5"><label class="form-label">بحث</label><input class="form-control" name="employee_search" value="{{ employee_search }}" placeholder="اسم الموظف أو الرقم الوظيفي"></div><div class="col-md-3"><label class="form-label">الحالة</label><select class="form-select" name="employee_status"><option value="active"{% if employee_status == 'active' %} selected{% endif %}>النشطون</option><option value="archived"{% if employee_status == 'archived' %} selected{% endif %}>المؤرشفون</option><option value="all"{% if employee_status == 'all' %} selected{% endif %}>الكل</option></select></div><div class="col-auto"><button class="btn btn-primary">تطبيق</button></div></form></div>
+      <form method="post" action="{% url 'organization:employee_bulk_manage' %}" id="bulk-employee-form">{% csrf_token %}
+        <div class="table-responsive"><table class="table table-vcenter card-table"><thead><tr><th class="w-1"><input class="form-check-input" type="checkbox" id="select-all-employees" aria-label="تحديد جميع الموظفين الظاهرين"></th><th>الموظف</th><th>الرقم الوظيفي</th><th>السجل المدني</th><th>القسم</th><th>مكان التوقيع</th><th>الحالة</th></tr></thead><tbody>
+          {% for employee in employee_page.object_list %}<tr><td><input class="form-check-input employee-selection" type="checkbox" name="employee_ids" value="{{ employee.id }}" aria-label="تحديد {{ employee.full_name_ar }}"></td><th><a href="{% url 'organization:employee_detail' employee.id %}">{{ employee.full_name_ar }}</a></th><td>{{ employee.employee_number|default:"—" }}</td><td dir="ltr">{{ employee.ui_national_id }}</td><td>{{ employee.ui_assignment.department.name_ar|default:"—" }}</td><td>{{ employee.ui_location.location.name_ar|default:"—" }}</td><td>{{ employee.get_employment_status_display }}</td></tr>{% empty %}<tr><td colspan="7" class="text-center text-secondary py-5">لا يوجد موظفون ضمن الفلتر.</td></tr>{% endfor %}
+        </tbody></table></div>
+        <div class="card-body border-top"><div class="row g-3 align-items-end"><div class="col-md-2"><label class="form-label">الإجراء</label>{{ bulk_employee_form.action }}</div><div class="col-md-3"><label class="form-label">النطاق</label>{{ bulk_employee_form.scope }}</div><div class="col-md-3"><label class="form-label">دفعة معتمدة</label>{{ bulk_employee_form.batch }}</div><div class="col-md-4"><label class="form-label">سبب العملية</label><input class="form-control" name="reason" minlength="5" required></div><div class="col-md-6"><label class="form-label">عبارة التأكيد</label><input class="form-control" name="confirmation" required autocomplete="off"><div class="form-hint">حسب الاختيار: أرشفة المحدد، استعادة المحدد، أرشفة موظفي الدفعة، استعادة موظفي الدفعة، أرشفة جميع الموظفين، أو استعادة جميع الموظفين.</div></div><div class="col-md-3"><button class="btn btn-warning w-100" type="submit" onclick="return confirm('سيتم تنفيذ الإجراء على النطاق المختار. هل تريد المتابعة؟');">تنفيذ الإدارة الجماعية</button></div></div></div>
+      </form>
+      {% if employee_page.has_other_pages %}<div class="card-footer d-flex justify-content-between"><span>صفحة {{ employee_page.number }} من {{ employee_page.paginator.num_pages }}</span><div class="btn-list">{% if employee_page.has_previous %}<a class="btn btn-sm btn-outline-secondary" href="?employee_page={{ employee_page.previous_page_number }}&employee_search={{ employee_search|urlencode }}&employee_status={{ employee_status }}">السابق</a>{% endif %}{% if employee_page.has_next %}<a class="btn btn-sm btn-outline-secondary" href="?employee_page={{ employee_page.next_page_number }}&employee_search={{ employee_search|urlencode }}&employee_status={{ employee_status }}">التالي</a>{% endif %}</div></div>{% endif %}
+    </section>
+    <script>document.addEventListener("DOMContentLoaded",function(){const all=document.getElementById("select-all-employees");if(!all)return;all.addEventListener("change",function(){document.querySelectorAll(".employee-selection").forEach(function(item){item.checked=all.checked;});});});</script>
+  {% endif %}
+{% endblock %}
