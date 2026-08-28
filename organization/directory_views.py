@@ -6,7 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render, resolve_url
 from django.utils import timezone
@@ -21,7 +21,14 @@ from .forms import (
     JobTitleForm,
     LocationForm,
 )
-from .models import Department, Employee, JobTitle, Location, UserDepartmentScope
+from .models import (
+    Department,
+    Employee,
+    EmploymentAssignment,
+    JobTitle,
+    Location,
+    UserDepartmentScope,
+)
 from .selectors import (
     current_assignment_for,
     current_primary_location_for,
@@ -169,13 +176,22 @@ def employee_bulk_department_assignment(request: HttpRequest) -> HttpResponse:
         queryset = queryset.filter(
             Q(full_name_ar__icontains=search) | Q(employee_number__icontains=search)
         )
-    if current_department in department_map:
+    if current_department == "unassigned":
+        active_primary_assignments = EmploymentAssignment.objects.filter(
+            employee_id=OuterRef("pk"),
+            is_primary=True,
+            valid_from__lte=timezone.localdate(),
+        ).filter(Q(valid_to__isnull=True) | Q(valid_to__gt=timezone.localdate()))
+        queryset = queryset.annotate(
+            has_current_department=Exists(active_primary_assignments)
+        ).filter(has_current_department=False)
+    elif current_department in department_map:
         queryset = queryset.filter(
             _current_date_filters("employment_assignments__"),
             employment_assignments__is_primary=True,
             employment_assignments__department_id=current_department,
         )
-    employees = list(queryset.distinct()[:100])
+    employees = list(queryset.distinct())
     for employee in employees:
         employee.ui_assignment = current_assignment_for(employee)
         employee.ui_national_id = _assignment_national_id_display(

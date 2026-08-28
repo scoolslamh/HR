@@ -183,6 +183,51 @@ class EmployeeDirectoryTests(TestCase):
         self.assertNotContains(response, "الرقم الوظيفي")
         self.assertContains(response, self.department_b.name_ar)
 
+    def test_bulk_department_assignment_page_shows_more_than_one_hundred_employees(self):
+        Employee.objects.bulk_create(
+            [
+                Employee(
+                    employee_number=f"BULK-{index:03d}",
+                    full_name_ar=f"موظف إضافي {index:03d}",
+                    employment_status=Employee.EmploymentStatus.ACTIVE,
+                    created_by=self.admin,
+                    updated_by=self.admin,
+                )
+                for index in range(101)
+            ]
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.get(
+            reverse("organization:employee_bulk_department_assignment")
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["employees"]), 103)
+        self.assertContains(response, "موظف إضافي 100")
+        self.assertNotContains(response, "بحد أقصى 100 موظف")
+
+    def test_bulk_department_assignment_can_filter_unassigned_employees(self):
+        unassigned_employee = Employee.objects.create(
+            employee_number="NO-DEPARTMENT",
+            full_name_ar="موظف بدون قسم",
+            employment_status=Employee.EmploymentStatus.ACTIVE,
+            created_by=self.admin,
+            updated_by=self.admin,
+        )
+        self.client.force_login(self.admin)
+
+        response = self.client.get(
+            reverse("organization:employee_bulk_department_assignment"),
+            {"department": "unassigned"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(list(response.context["employees"]), [unassigned_employee])
+        self.assertContains(response, unassigned_employee.full_name_ar)
+        self.assertNotContains(response, self.employee_a.full_name_ar)
+        self.assertNotContains(response, self.employee_b.full_name_ar)
+
     def test_bulk_assignment_masks_national_id_for_scoped_manager(self):
         self.client.force_login(self.manager)
 
