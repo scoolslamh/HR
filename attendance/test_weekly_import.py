@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 import os
 import tempfile
-from datetime import date
+from datetime import date, timedelta
 from io import BytesIO
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from openpyxl import Workbook
@@ -21,7 +26,11 @@ from organization.models import (
     EmploymentAssignment,
     Location,
 )
-from organization.services.identity import encrypt_sensitive_text, national_id_digest
+from organization.services.identity import (
+    decrypt_sensitive_bytes,
+    encrypt_sensitive_text,
+    national_id_digest,
+)
 
 from attendance.models import ImportBatch, ImportError, ImportRow, RawAttendanceRecord
 from attendance.services.weekly_import import (
@@ -45,7 +54,15 @@ HEADERS = (
 )
 
 
-def workbook_bytes(*, national_id="1023456789", location="المقر الرئيسي", out_location=None, second_day=True) -> bytes:
+def workbook_bytes(
+    *,
+    national_id="1023456789",
+    employee_name="موظف تجريبي",
+    location="المقر الرئيسي",
+    out_location=None,
+    second_day=True,
+    duplicate_first_day=False,
+) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "الحضور والانصراف"
@@ -53,10 +70,51 @@ def workbook_bytes(*, national_id="1023456789", location="المقر الرئي�
     ws.append([None] * len(HEADERS))
     ws.append(HEADERS)
     out_location = location if out_location is None else out_location
-    ws.append([national_id, "موظف تجريبي", "محلل", "الأحد 2026/07/05", "مكتملة", "07:00", "07:00", location, "14:00", out_location, "07:00", "00:00", "00:00", "00:00"])
+    first_row = [national_id, employee_name, "محلل", "الأحد 2026/07/05", "مكتملة", "07:00", "07:00", location, "14:00", out_location, "07:00", "00:00", "00:00", "00:00"]
+    ws.append(first_row)
+    if duplicate_first_day:
+        ws.append(first_row)
     if second_day:
         ws.append([None, None, None, "الاثنين 2026/07/06", "مكتملة", "07:00", "07:05", location, "14:03", out_location, "06:58", "00:00", "00:02", "00:00"])
     ws.append(["المجموع", None, None, None, None, "14:00", None, None, None, None, "13:58", None, "00:02", None])
+    out = BytesIO()
+    wb.save(out)
+    wb.close()
+    return out.getvalue()
+
+
+def workbook_with_daily_rows(row_count: int, *, start=date(2026, 8, 1)) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "الحضور والانصراف"
+    end = start + timedelta(days=max(row_count - 1, 0))
+    ws.append(
+        [
+            f"الحضور والانصراف للموظفين من: {start:%Y/%m/%d} "
+            f"إلى {end:%Y/%m/%d}"
+        ]
+    )
+    ws.append([None] * len(HEADERS))
+    ws.append(HEADERS)
+    for index in range(row_count):
+        ws.append(
+            [
+                "1023456789" if index == 0 else None,
+                "موظف تجريبي" if index == 0 else None,
+                "محلل" if index == 0 else None,
+                start + timedelta(days=index),
+                "مكتملة",
+                "07:00",
+                "07:00",
+                "المقر الرئيسي",
+                "14:00",
+                "المقر الرئيسي",
+                "07:00",
+                "00:00",
+                "00:00",
+                "00:00",
+            ]
+        )
     out = BytesIO()
     wb.save(out)
     wb.close()
@@ -129,7 +187,141 @@ class AttendanceWeeklyImportTests(TestCase):
         self.assertEqual(batch.status, ImportBatch.Status.HAS_ERRORS)
         self.assertEqual(batch.unmatched_row_count, 1)
         self.assertTrue(ImportError.objects.filter(batch=batch, error_code="employee_not_found").exists())
+        error = ImportError.objects.get(batch=batch, error_code="employee_not_found")
+        self.assertEqual(error.row_id, batch.rows.get().id)
         self.assertEqual(Employee.objects.count(), 1)
+
+    def test_raw_payload_remains_encrypted_and_decryptable_after_bulk_insert(self):
+        batch = preview_attendance_import(
+            self.upload(workbook_bytes(second_day=False)), uploaded_by=self.user
+        )
+        row = batch.rows.get()
+
+        plaintext = decrypt_sensitive_bytes(
+            bytes(row.raw_payload_encrypted),
+            context=f"attendance-row:{batch.id}:{row.row_number}",
+            key_version=row.encryption_key_version,
+        )
+
+        self.assertEqual(json.loads(plaintext)["national_id"], "1023456789")
+        self.assertNotIn(b"1023456789", bytes(row.raw_payload_encrypted))
+
+    def test_record_fingerprint_format_is_unchanged(self):
+        batch = preview_attendance_import(
+            self.upload(workbook_bytes(second_day=False)), uploaded_by=self.user
+        )
+        row = batch.rows.get()
+        expected = hashlib.sha256(
+            "|".join(
+                (
+                    str(self.employee.id),
+                    "2026-07-05",
+                    "07:00:00",
+                    "14:00:00",
+                    "المقر الرئيسي",
+                    "المقر الرئيسي",
+                )
+            ).encode("utf-8")
+        ).hexdigest()
+
+        self.assertEqual(row.proposed_record_fingerprint, expected)
+
+    def test_national_id_digest_is_calculated_once_for_repeated_employee(self):
+        with patch(
+            "attendance.services.weekly_import.national_id_digest",
+            wraps=national_id_digest,
+        ) as digest:
+            batch = preview_attendance_import(self.upload(), uploaded_by=self.user)
+
+        self.assertEqual(batch.matched_row_count, 2)
+        self.assertEqual(digest.call_count, 1)
+
+    def test_duplicate_in_raw_attendance_is_detected(self):
+        first = preview_attendance_import(
+            self.upload(workbook_bytes(second_day=False)), uploaded_by=self.user
+        )
+        approve_attendance_import(first, approved_by=self.user)
+
+        second = preview_attendance_import(
+            self.upload(
+                workbook_bytes(employee_name="اسم مختلف", second_day=False),
+                "second.xlsx",
+            ),
+            uploaded_by=self.user,
+        )
+
+        self.assertTrue(second.rows.get().is_duplicate)
+        self.assertTrue(
+            second.errors.filter(error_code="duplicate_daily_record").exists()
+        )
+
+    def test_duplicate_in_existing_import_row_is_detected(self):
+        preview_attendance_import(
+            self.upload(workbook_bytes(second_day=False)), uploaded_by=self.user
+        )
+
+        second = preview_attendance_import(
+            self.upload(
+                workbook_bytes(employee_name="اسم آخر", second_day=False),
+                "second.xlsx",
+            ),
+            uploaded_by=self.user,
+        )
+
+        self.assertTrue(second.rows.get().is_duplicate)
+
+    def test_duplicate_inside_same_workbook_is_detected_in_row_order(self):
+        batch = preview_attendance_import(
+            self.upload(
+                workbook_bytes(second_day=False, duplicate_first_day=True)
+            ),
+            uploaded_by=self.user,
+        )
+        rows = list(batch.rows.order_by("row_number"))
+
+        self.assertFalse(rows[0].is_duplicate)
+        self.assertTrue(rows[1].is_duplicate)
+        self.assertTrue(
+            ImportError.objects.filter(
+                batch=batch,
+                row=rows[1],
+                error_code="duplicate_daily_record",
+            ).exists()
+        )
+
+    def test_preview_rolls_back_all_database_rows_when_bulk_insert_fails(self):
+        with patch(
+            "attendance.services.weekly_import.ImportRow.objects.bulk_create",
+            side_effect=RuntimeError("forced bulk insert failure"),
+        ):
+            with self.assertRaises(RuntimeError):
+                preview_attendance_import(self.upload(), uploaded_by=self.user)
+
+        self.assertEqual(ImportBatch.objects.count(), 0)
+        self.assertEqual(ImportRow.objects.count(), 0)
+        self.assertEqual(ImportError.objects.count(), 0)
+
+    def test_preview_query_count_does_not_grow_per_daily_row(self):
+        with CaptureQueriesContext(connection) as small_queries:
+            small_batch = preview_attendance_import(
+                self.upload(
+                    workbook_with_daily_rows(5, start=date(2026, 8, 1)),
+                    "small.xlsx",
+                ),
+                uploaded_by=self.user,
+            )
+        with CaptureQueriesContext(connection) as larger_queries:
+            larger_batch = preview_attendance_import(
+                self.upload(
+                    workbook_with_daily_rows(120, start=date(2027, 1, 1)),
+                    "larger.xlsx",
+                ),
+                uploaded_by=self.user,
+            )
+
+        self.assertEqual(small_batch.matched_row_count, 5)
+        self.assertEqual(larger_batch.matched_row_count, 120)
+        self.assertLessEqual(len(larger_queries), len(small_queries) + 8)
 
     def test_unmatched_employee_can_be_ignored_then_batch_can_be_approved(self):
         batch = preview_attendance_import(

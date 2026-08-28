@@ -115,15 +115,17 @@ def _alias_lookup() -> dict[str, str]:
     }
 
 
+_ALIASES = _alias_lookup()
+
+
 def _find_header(worksheet) -> tuple[int, dict[str, int]]:
-    aliases = _alias_lookup()
     for row_number, values in enumerate(
         worksheet.iter_rows(min_row=1, max_row=min(worksheet.max_row, 100), values_only=True),
         start=1,
     ):
         mapping = {}
         for index, value in enumerate(values):
-            canonical = aliases.get(_header_key(value))
+            canonical = _ALIASES.get(_header_key(value))
             if canonical:
                 mapping[canonical] = index
         if {"national_id", "attendance_date", "check_in", "check_out"}.issubset(mapping):
@@ -275,7 +277,7 @@ def parse_weekly_report(content: bytes) -> ParsedWeeklyReport:
             if any((_normalized_text(value) or "").startswith("المجموع") for value in values):
                 summaries += 1
                 continue
-            if sum(1 for value in values if _header_key(value) in _alias_lookup()) >= 4:
+            if sum(1 for value in values if _header_key(value) in _ALIASES) >= 4:
                 ignored += 1
                 continue
 

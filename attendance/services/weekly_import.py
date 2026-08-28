@@ -39,6 +39,8 @@ from attendance.services.weekly_report_parser import ParsedDailyRow, ParserIssue
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _XLSX_SIGNATURE = b"PK\x03\x04"
 _STORAGE_PREFIX = "attendance/imports"
+_LOOKUP_CHUNK_SIZE = 1000
+_WRITE_BATCH_SIZE = 500
 
 
 class AttendanceImportServiceError(RuntimeError):
@@ -51,6 +53,46 @@ class AttendanceImportServiceError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class ImportPreviewResult:
     batch: ImportBatch
+
+
+@dataclass(frozen=True, slots=True)
+class _PreparedPreviewRow:
+    parsed_row: ParsedDailyRow
+    national_id_hash: str | None
+    employee_id: uuid.UUID | None
+    fingerprint: str | None
+
+
+def _chunks(values, *, size: int):
+    chunk = []
+    for value in values:
+        chunk.append(value)
+        if len(chunk) == size:
+            yield chunk
+            chunk = []
+    if chunk:
+        yield chunk
+
+
+def _identity_employee_map(national_id_hashes: set[str]) -> dict[str, uuid.UUID]:
+    identities: dict[str, uuid.UUID] = {}
+    for hash_chunk in _chunks(national_id_hashes, size=_LOOKUP_CHUNK_SIZE):
+        for identity in EmployeeIdentity.objects.filter(
+            national_id_hash__in=hash_chunk
+        ).values("national_id_hash", "employee_id"):
+            identities[identity["national_id_hash"]] = identity["employee_id"]
+    return identities
+
+
+def _existing_fingerprints(queryset, field_name: str, fingerprints: set[str]) -> set[str]:
+    existing: set[str] = set()
+    for fingerprint_chunk in _chunks(fingerprints, size=_LOOKUP_CHUNK_SIZE):
+        existing.update(
+            queryset.filter(
+                **{f"{field_name}__in": fingerprint_chunk}
+            ).values_list(field_name, flat=True)
+        )
+    return existing
 
 
 def _max_upload_bytes() -> int:
@@ -236,6 +278,41 @@ def preview_attendance_import(uploaded_file, *, uploaded_by) -> ImportBatch:
     encrypted_workbook = encrypt_sensitive_bytes(content, context=f"attendance-workbook:{file_sha256}")
     storage_key = f"{_STORAGE_PREFIX}/{uuid.uuid4().hex}.bin"
 
+    national_id_hashes = {
+        national_id: national_id_digest(national_id)
+        for national_id in {
+            row.national_id for row in parsed.rows if row.national_id is not None
+        }
+    }
+    identities = _identity_employee_map(set(national_id_hashes.values()))
+    prepared_rows: list[_PreparedPreviewRow] = []
+    fingerprints: set[str] = set()
+    for parsed_row in parsed.rows:
+        national_hash = (
+            national_id_hashes.get(parsed_row.national_id)
+            if parsed_row.national_id is not None
+            else None
+        )
+        employee_id = identities.get(national_hash) if national_hash else None
+        fingerprint = _record_fingerprint(employee_id=employee_id, row=parsed_row)
+        prepared_rows.append(
+            _PreparedPreviewRow(
+                parsed_row=parsed_row,
+                national_id_hash=national_hash,
+                employee_id=employee_id,
+                fingerprint=fingerprint,
+            )
+        )
+        if fingerprint:
+            fingerprints.add(fingerprint)
+
+    existing_raw_fingerprints = _existing_fingerprints(
+        RawAttendanceRecord.objects.all(), "record_fingerprint", fingerprints
+    )
+    existing_import_fingerprints = _existing_fingerprints(
+        ImportRow.objects.all(), "proposed_record_fingerprint", fingerprints
+    )
+
     with transaction.atomic():
         saved_storage_key = default_storage.save(storage_key, ContentFile(encrypted_workbook.ciphertext))
         try:
@@ -256,30 +333,41 @@ def preview_attendance_import(uploaded_file, *, uploaded_by) -> ImportBatch:
                 uploaded_by=uploaded_by,
             )
 
-            all_errors: list[ImportError] = []
+            pending_rows: list[ImportRow] = []
+            pending_errors: list[ImportError] = []
             matched_count = 0
             unmatched_count = 0
             error_count = 0
             warning_count = 0
             locations: set[str] = set()
+            seen_fingerprints: set[str] = set()
+
+            def flush_pending() -> None:
+                if pending_rows:
+                    ImportRow.objects.bulk_create(
+                        pending_rows, batch_size=_WRITE_BATCH_SIZE
+                    )
+                    pending_rows.clear()
+                if pending_errors:
+                    ImportError.objects.bulk_create(
+                        pending_errors, batch_size=_WRITE_BATCH_SIZE
+                    )
+                    pending_errors.clear()
 
             for issue in parsed.issues:
-                all_errors.append(_error_from_issue(batch, None, issue))
+                pending_errors.append(_error_from_issue(batch, None, issue))
                 error_count += issue.severity == "error"
                 warning_count += issue.severity != "error"
 
-            for parsed_row in parsed.rows:
-                national_hash = None
-                identity = None
-                if parsed_row.national_id:
-                    national_hash = national_id_digest(parsed_row.national_id)
-                    identity = EmployeeIdentity.objects.select_related("employee").filter(
-                        national_id_hash=national_hash
-                    ).first()
+            for prepared_row in prepared_rows:
+                parsed_row = prepared_row.parsed_row
+                national_hash = prepared_row.national_id_hash
+                employee_id = prepared_row.employee_id
+                fingerprint = prepared_row.fingerprint
 
-                match_status = ImportRow.MatchStatus.MATCHED if identity else ImportRow.MatchStatus.UNMATCHED
+                match_status = ImportRow.MatchStatus.MATCHED if employee_id else ImportRow.MatchStatus.UNMATCHED
                 row_issues = list(parsed_row.issues)
-                if not identity:
+                if not employee_id:
                     row_issues.append(
                         ParserIssue(
                             parsed_row.row_number,
@@ -295,17 +383,16 @@ def preview_attendance_import(uploaded_file, *, uploaded_by) -> ImportBatch:
                     check_in_location=parsed_row.check_in_location,
                     check_out_location=parsed_row.check_out_location,
                 )
-                fingerprint = _record_fingerprint(
-                    employee_id=identity.employee_id if identity else None,
-                    row=parsed_row,
-                )
                 is_duplicate = bool(
                     fingerprint
                     and (
-                        RawAttendanceRecord.objects.filter(record_fingerprint=fingerprint).exists()
-                        or ImportRow.objects.filter(proposed_record_fingerprint=fingerprint).exists()
+                        fingerprint in existing_raw_fingerprints
+                        or fingerprint in existing_import_fingerprints
+                        or fingerprint in seen_fingerprints
                     )
                 )
+                if fingerprint:
+                    seen_fingerprints.add(fingerprint)
                 if is_duplicate:
                     row_issues.append(
                         ParserIssue(
@@ -349,21 +436,22 @@ def preview_attendance_import(uploaded_file, *, uploaded_by) -> ImportBatch:
                     )
                     validation_status = ImportRow.ValidationStatus.WARNING if not has_errors else validation_status
 
+                raw_payload_bytes = _json_bytes(parsed_row.raw_payload)
                 encrypted_payload = encrypt_sensitive_bytes(
-                    _json_bytes(parsed_row.raw_payload),
+                    raw_payload_bytes,
                     context=f"attendance-row:{batch.id}:{parsed_row.row_number}",
                 )
-                import_row = ImportRow.objects.create(
+                import_row = ImportRow(
                     batch=batch,
                     row_number=parsed_row.row_number,
                     raw_payload_encrypted=encrypted_payload.ciphertext,
                     encryption_key_version=encrypted_payload.key_version,
-                    raw_payload_sha256=hashlib.sha256(_json_bytes(parsed_row.raw_payload)).hexdigest(),
+                    raw_payload_sha256=hashlib.sha256(raw_payload_bytes).hexdigest(),
                     national_id_hash=national_hash,
                     national_id_last4=(parsed_row.national_id[-4:] if parsed_row.national_id else ""),
                     normalized_payload_json=_normalized_payload(parsed_row),
                     display_data_json=_display_data(parsed_row),
-                    matched_employee=identity.employee if identity else None,
+                    matched_employee_id=employee_id,
                     attendance_date=parsed_row.attendance_date,
                     source_check_in=parsed_row.check_in,
                     source_check_out=parsed_row.check_out,
@@ -381,19 +469,21 @@ def preview_attendance_import(uploaded_file, *, uploaded_by) -> ImportBatch:
                     location_match_status=loc_status,
                     is_duplicate=is_duplicate,
                 )
+                pending_rows.append(import_row)
                 for issue in row_issues:
-                    all_errors.append(_error_from_issue(batch, import_row, issue))
+                    pending_errors.append(_error_from_issue(batch, import_row, issue))
                     error_count += issue.severity == "error"
                     warning_count += issue.severity != "error"
 
-                matched_count += bool(identity)
-                unmatched_count += not bool(identity)
+                matched_count += bool(employee_id)
+                unmatched_count += not bool(employee_id)
                 for location in (parsed_row.check_in_location, parsed_row.check_out_location):
                     if location:
                         locations.add(_normalize_location(location))
+                if len(pending_rows) >= _WRITE_BATCH_SIZE:
+                    flush_pending()
 
-            if all_errors:
-                ImportError.objects.bulk_create(all_errors)
+            flush_pending()
 
             batch.matched_row_count = matched_count
             batch.unmatched_row_count = unmatched_count
