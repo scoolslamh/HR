@@ -9,17 +9,13 @@
           لوحة المتابعة اليومية
         </div>
         <h1 class="welcome-title" id="welcome-title">مرحبًا، {{ request.user.get_full_name|default:request.user.username }}</h1>
-        <p class="welcome-subtitle mb-0">نتمنى لك يوم عمل موفقًا</p>
+        {% if selected_attendance_period %}<p class="welcome-subtitle mb-0">الفترة المعروضة: {{ selected_attendance_period.period_start|date:"Y/m/d" }} — {{ selected_attendance_period.period_end|date:"Y/m/d" }}</p>{% endif %}
       </div>
       <div class="col-12 col-lg-auto">
         <div class="welcome-meta">
           <div class="welcome-meta-item">
             <i data-lucide="calendar-days" aria-hidden="true"></i>
             <span>{% now "l، j F Y" %}</span>
-          </div>
-          <div class="welcome-meta-item">
-            <i data-lucide="refresh-cw" aria-hidden="true"></i>
-            <span>آخر تحديث: الآن</span>
           </div>
         </div>
       </div>
@@ -35,87 +31,13 @@
       </div>
     {% endfor %}
 
-    <div class="col-12 col-xl-8">
-      <section class="card dashboard-card h-100">
-        <div class="card-header dashboard-card-header">
-          <div>
-            <h2 class="card-title">رسم الحضور الأسبوعي</h2>
-            <p class="card-subtitle text-secondary mt-1">نسبة الحضور في آخر خمسة أيام محتسبة ضمن نطاقك</p>
-          </div>
-          {% if latest_attendance_date %}{% include "core/components/badge.html" with text="بيانات فعلية" color="blue" only %}{% endif %}
-        </div>
-        <div class="card-body">
-          <div class="chart-summary">
-            <div>
-              <span class="chart-summary-label">متوسط الحضور</span>
-              <strong class="chart-summary-value">{{ weekly_average }}%</strong>
-            </div>
-            <span class="chart-summary-note">آخر النتائج المحتسبة</span>
-          </div>
-          <div class="weekly-chart" role="img" aria-label="رسم توضيحي لنسب الحضور من الأحد إلى الخميس">
-            <div class="chart-grid-lines" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
-            {% for item in weekly_attendance %}
-              <div class="chart-column">
-                <span class="chart-value">{{ item.count }}</span>
-                <div class="chart-track">
-                  <span class="chart-bar" style="--bar-value: {{ item.value }}%"></span>
-                </div>
-                <span class="chart-day">{{ item.day }}</span>
-              </div>
-            {% endfor %}
-            {% if not weekly_attendance %}<p class="text-secondary my-5">لا توجد نتائج حضور محتسبة للعرض.</p>{% endif %}
-          </div>
-        </div>
-      </section>
-    </div>
-
-    <div class="col-12 col-xl-4">
-      <section class="card dashboard-card h-100">
-        <div class="card-header dashboard-card-header">
-          <div>
-            <h2 class="card-title">آخر التنبيهات</h2>
-            <p class="card-subtitle text-secondary mt-1">ملخص آخر نتائج الحضور في نطاقك</p>
-          </div>
-          <span class="card-header-icon" aria-hidden="true"><i data-lucide="bell-ring"></i></span>
-        </div>
-        <div class="list-group list-group-flush alert-list">
-          {% for alert in recent_alerts %}
-            <div class="list-group-item">
-              <div class="d-flex align-items-start gap-3">
-                <span class="activity-icon bg-{{ alert.color }}-lt text-{{ alert.color }}" aria-hidden="true">
-                  <i data-lucide="{{ alert.icon }}"></i>
-                </span>
-                <div class="flex-fill min-w-0">
-                  <div class="activity-title">{{ alert.title }}</div>
-                  <div class="small text-secondary mt-1">{{ alert.time }}</div>
-                </div>
-              </div>
-            </div>
-          {% endfor %}
-          {% if not recent_alerts %}<div class="list-group-item text-center text-secondary py-5">لا توجد تنبيهات حالية.</div>{% endif %}
-        </div>
-        <div class="card-footer dashboard-card-footer">تعتمد المؤشرات على آخر احتساب محفوظ.</div>
-      </section>
-    </div>
-
-    {% if can_view_imports %}
-      <div class="col-12 col-xxl-6">
-        {% include "core/components/data_table.html" with title="آخر عمليات الاستيراد" description="آخر ملفات الحضور المستوردة فعليًا." columns=import_columns rows=import_rows only %}
-      </div>
-    {% endif %}
-
-    <div class="col-12 {% if can_view_imports %}col-xxl-6{% endif %}">
-      {% include "core/components/data_table.html" with title="أحدث حالات المتابعة" description="الغياب والتأخر والانصراف المبكر وتنبيهات اختلاف موقع الحضور والانصراف ضمن نطاقك." columns=violation_columns rows=violation_rows only %}
-    </div>
-
     <div class="col-12">
       <section class="card dashboard-card">
         <div class="card-header dashboard-card-header">
           <div>
-            <h2 class="card-title">ملخص حالة الوحدات</h2>
-            <p class="card-subtitle text-secondary mt-1">مؤشر الحضور الفعلي حسب القسم في آخر يوم محتسب</p>
+            <h2 class="card-title">نسبة انضباط فرق العمل</h2>
+            <p class="card-subtitle text-secondary mt-1">نسبة الأيام المكتملة دون تأخر أو انصراف مبكر أو اختلاف موقع خلال الفترة المختارة</p>
           </div>
-          {% include "core/components/badge.html" with text="فعلي" color="purple" only %}
         </div>
         <div class="card-body">
           <div class="row g-4">
@@ -127,7 +49,7 @@
                     {% include "core/components/badge.html" with text=unit.status color=unit.color only %}
                   </div>
                   <div class="d-flex align-items-center gap-3">
-                    <div class="progress flex-fill" role="progressbar" aria-label="نسبة الحضور التوضيحية في {{ unit.name }}" aria-valuenow="{{ unit.value }}" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress flex-fill" role="progressbar" aria-label="نسبة انضباط {{ unit.name }}" aria-valuenow="{{ unit.value }}" aria-valuemin="0" aria-valuemax="100">
                       <div class="progress-bar bg-{{ unit.color }}" style="width: {{ unit.value }}%"></div>
                     </div>
                     <span class="unit-value">{{ unit.value }}%</span>
@@ -140,5 +62,15 @@
         </div>
       </section>
     </div>
+
+    <div class="col-12 col-xl-4">{% include "core/components/data_table.html" with title="أكثر ثلاثة موظفين غيابًا" columns=ranking_columns rows=top_absent_employees only %}</div>
+    <div class="col-12 col-xl-4">{% include "core/components/data_table.html" with title="أكثر ثلاثة موظفين استئذانًا" columns=ranking_columns rows=top_permission_employees only %}</div>
+    <div class="col-12 col-xl-4">{% include "core/components/data_table.html" with title="أكثر ثلاثة موظفين في مهمات العمل" columns=ranking_columns rows=top_work_mission_employees only %}</div>
+
+    {% if can_view_imports %}
+      <div class="col-12">
+        {% include "core/components/data_table.html" with title="آخر عمليات الاستيراد" description="آخر ملفات الحضور المستوردة." columns=import_columns rows=import_rows only %}
+      </div>
+    {% endif %}
   </div>
 {% endblock %}

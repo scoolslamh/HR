@@ -13,6 +13,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods
 
 from attendance.models import DailyAttendanceResult
+from core.periods import selected_attendance_period
 from organization.access import user_has_business_permission
 from organization.models import Department
 from organization.selectors import current_assignment_for, current_primary_location_for
@@ -64,16 +65,26 @@ def _can_view_all(user) -> bool:
     return user.is_superuser or user_has_business_permission(user, "clarifications.view_all")
 
 
-def _active_clarifications():
-    return ClarificationRequest.objects.filter(
+def _active_clarifications(attendance_period=None):
+    queryset = ClarificationRequest.objects.filter(
         attendance_result__source_record__import_row__batch__archived_at__isnull=True
+    )
+    if attendance_period is None:
+        return queryset.none()
+    return queryset.filter(
+        attendance_result__source_record__import_row__batch=attendance_period
     )
 
 
-def _work_mission_results():
-    return DailyAttendanceResult.objects.filter(
+def _work_mission_results(attendance_period=None):
+    queryset = DailyAttendanceResult.objects.filter(
         is_current=True,
         source_record__import_row__batch__archived_at__isnull=True,
+    )
+    if attendance_period is None:
+        return queryset.none()
+    return queryset.filter(
+        source_record__import_row__batch=attendance_period
     ).filter(
         Q(source_status__icontains="مهمة عمل")
         | Q(source_status__icontains="مهمه عمل")
@@ -89,7 +100,10 @@ def employee_portal(request: HttpRequest) -> HttpResponse:
         is_current=True,
         source_record__import_row__batch__archived_at__isnull=True,
     )
-    clarifications = _active_clarifications().filter(employee=employee).select_related(
+    clarifications = ClarificationRequest.objects.filter(
+        attendance_result__source_record__import_row__batch__archived_at__isnull=True,
+        employee=employee,
+    ).select_related(
         "attendance_result", "department"
     )
     stats = {
@@ -128,7 +142,9 @@ def employee_portal(request: HttpRequest) -> HttpResponse:
 @require_http_methods(["GET", "POST"])
 def employee_clarification(request: HttpRequest, clarification_id) -> HttpResponse:
     clarification = get_object_or_404(
-        _active_clarifications().select_related("attendance_result", "department").prefetch_related("evidence_files"),
+        ClarificationRequest.objects.filter(
+            attendance_result__source_record__import_row__batch__archived_at__isnull=True
+        ).select_related("attendance_result", "department").prefetch_related("evidence_files"),
         pk=clarification_id,
         employee=request.portal_employee,
     )
@@ -173,7 +189,8 @@ def manager_dashboard(request: HttpRequest) -> HttpResponse:
         )
     ):
         return render(request, "core/errors/403.html", status=403)
-    items = _active_clarifications().select_related("employee", "department", "attendance_result")
+    attendance_period = selected_attendance_period(request)
+    items = _active_clarifications(attendance_period).select_related("employee", "department", "attendance_result")
     if not request.user.is_superuser:
         items = items.filter(department__in=departments)
     summary = items.aggregate(
@@ -196,7 +213,7 @@ def manager_review(request: HttpRequest, clarification_id) -> HttpResponse:
     if not request.user.is_authenticated:
         return redirect_to_login(request.get_full_path())
     clarification = get_object_or_404(
-        _active_clarifications().select_related("employee__user", "department__department_head__user", "attendance_result").prefetch_related("evidence_files"),
+        _active_clarifications(selected_attendance_period(request)).select_related("employee__user", "department__department_head__user", "attendance_result").prefetch_related("evidence_files"),
         pk=clarification_id,
     )
     allowed = request.user.is_superuser or (
@@ -233,7 +250,7 @@ def executive_dashboard(request: HttpRequest) -> HttpResponse:
         return redirect_to_login(request.get_full_path())
     if not _can_view_all(request.user):
         return render(request, "core/errors/403.html", status=403)
-    items = _active_clarifications()
+    items = _active_clarifications(selected_attendance_period(request))
     summary = items.aggregate(
         total=Count("id"),
         approved=Count("id", filter=Q(status=ClarificationRequest.Status.APPROVED)),
@@ -279,7 +296,7 @@ def work_mission_list(request: HttpRequest) -> HttpResponse:
     if not can_view_all and not can_view_department:
         return render(request, "core/errors/403.html", status=403)
 
-    results = _work_mission_results()
+    results = _work_mission_results(selected_attendance_period(request))
     if not can_view_all:
         results = results.filter(department__in=departments)
     rows = (

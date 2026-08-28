@@ -257,11 +257,11 @@ class AttendanceCalculationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         stats = {item["title"]: item["value"] for item in response.context["dashboard_stats"]}
-        self.assertEqual(stats["إجمالي الموظفين"], 1)
-        self.assertEqual(stats["الحضور"], 1)
-        self.assertEqual(stats["المتأخرون"], 1)
-        self.assertEqual(response.context["weekly_attendance"][0]["count"], 1)
-        self.assertContains(response, "موظف الاختبار")
+        self.assertEqual(stats["عدد الموظفين"], 1)
+        self.assertEqual(stats["أيام الغياب"], 0)
+        self.assertEqual(stats["الاستئذانات"], 0)
+        self.assertContains(response, "نسبة انضباط فرق العمل")
+        self.assertNotContains(response, "رسم الحضور الأسبوعي")
         self.assertNotContains(response, "بيانات توضيحية")
         self.assertNotContains(response, "weekly.xlsx")
 
@@ -358,6 +358,11 @@ class AttendanceCalculationTests(TestCase):
                 row_number=3,
                 source_status="استئذان طبي",
             ),
+            self._record(
+                attendance_date=date(2026, 7, 1),
+                row_number=4,
+                source_status="إجازة سنوية",
+            ),
         ]
         calculate_records(records=records, requested_by=self.user, import_batch=self.batch)
         self.client.force_login(self.user)
@@ -368,6 +373,22 @@ class AttendanceCalculationTests(TestCase):
         self.assertEqual(summary["absence_days"], 1)
         self.assertEqual(summary["automatic_checkout_days"], 1)
         self.assertEqual(summary["permission_days"], 1)
+        dashboard = self.client.get(reverse("core:dashboard"))
+        dashboard_stats = {
+            item["title"]: item["value"]
+            for item in dashboard.context["dashboard_stats"]
+        }
+        self.assertEqual(dashboard_stats["أيام الغياب"], 1)
+        self.assertEqual(dashboard_stats["الإجازات السنوية"], 1)
+        self.assertEqual(dashboard_stats["الاستئذانات"], 1)
+        self.assertEqual(
+            dashboard.context["top_absent_employees"][0],
+            (self.employee.full_name_ar, 1),
+        )
+        self.assertEqual(
+            dashboard.context["top_permission_employees"][0],
+            (self.employee.full_name_ar, 1),
+        )
         self.assertSetEqual(
             set(
                 ClarificationRequest.objects.filter(employee=self.employee).values_list(
@@ -404,6 +425,83 @@ class AttendanceCalculationTests(TestCase):
         )
         self.assertEqual(ClarificationRequest.objects.count(), 1)
         self.assertEqual(clarification.attendance_result.version, 2)
+
+    def test_report_cards_and_category_links_use_source_statuses(self):
+        self.batch.period_end = date(2026, 7, 5)
+        self.batch.save(update_fields=("period_end",))
+        records = [
+            self._record(
+                attendance_date=date(2026, 6, 28),
+                row_number=1,
+                source_status="إجازة طارئة",
+            ),
+            self._record(
+                attendance_date=date(2026, 6, 29),
+                row_number=2,
+                source_status="إجازة طبية",
+            ),
+            self._record(
+                attendance_date=date(2026, 6, 30),
+                row_number=3,
+                source_status="مهمة عمل رسمية",
+            ),
+            self._record(
+                attendance_date=date(2026, 7, 1),
+                row_number=4,
+                source_status="انتداب",
+            ),
+            self._record(
+                attendance_date=date(2026, 7, 2),
+                row_number=5,
+                source_status="انصراف تلقائي",
+            ),
+            self._record(
+                attendance_date=date(2026, 7, 3),
+                row_number=6,
+                source_status="تدريب خارجي",
+            ),
+            self._record(
+                attendance_date=date(2026, 7, 4),
+                row_number=7,
+                source_status="استئذان طارئ",
+            ),
+            self._record(
+                attendance_date=date(2026, 7, 5),
+                row_number=8,
+                source_status="استئذان طبي",
+            ),
+        ]
+        calculate_records(
+            records=records,
+            requested_by=self.user,
+            import_batch=self.batch,
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("attendance:report_overview"))
+
+        self.assertEqual(response.context["summary"]["emergency_leave"], 1)
+        self.assertEqual(response.context["summary"]["medical_leave"], 1)
+        self.assertEqual(response.context["summary"]["work_missions"], 1)
+        self.assertEqual(response.context["summary"]["delegation"], 1)
+        self.assertEqual(response.context["summary"]["training"], 1)
+        self.assertEqual(response.context["summary"]["emergency_permission"], 1)
+        self.assertEqual(response.context["summary"]["medical_permission"], 1)
+        self.assertEqual(response.context["summary"]["automatic_checkout"], 1)
+        for removed_label in (
+            "إجمالي ساعات العمل",
+            "إجمالي التأخر",
+            "الانصراف المبكر",
+            "نقص الدوام",
+        ):
+            self.assertNotContains(response, removed_label)
+
+        category_response = self.client.get(
+            reverse("attendance:category_report", args=("work-missions",))
+        )
+        self.assertEqual(category_response.status_code, 200)
+        self.assertContains(category_response, self.employee.full_name_ar)
+        self.assertContains(category_response, "مهمات العمل")
 
     def test_employee_login_submit_and_department_head_approval(self):
         absence = self._record(source_status="غياب")
@@ -462,7 +560,6 @@ class AttendanceCalculationTests(TestCase):
             item["title"]: item for item in head_dashboard.context["dashboard_stats"]
         }
         self.assertEqual(head_stats["مهمات العمل"]["value"], 1)
-        self.assertContains(head_dashboard, "اضغط لعرض الموظفين")
         self.assertContains(head_dashboard, reverse("violations:work_mission_list"))
         manager_missions = self.client.get(reverse("violations:work_mission_list"))
         self.assertEqual(manager_missions.status_code, 200)

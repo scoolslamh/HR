@@ -653,6 +653,22 @@ def approve_attendance_import(batch: ImportBatch, *, approved_by) -> int:
             raise AttendanceImportServiceError("تم اعتماد هذه الدفعة سابقًا.", code="already_approved")
         if locked.status != ImportBatch.Status.PREVIEW_READY or locked.error_count:
             raise AttendanceImportServiceError("لا يمكن اعتماد دفعة تحتوي أخطاء مانعة.", code="batch_not_approvable")
+        if (
+            locked.period_start
+            and locked.period_end
+            and ImportBatch.objects.filter(
+                status=ImportBatch.Status.APPROVED,
+                archived_at__isnull=True,
+                period_start__lte=locked.period_end,
+                period_end__gte=locked.period_start,
+            )
+            .exclude(pk=locked.pk)
+            .exists()
+        ):
+            raise AttendanceImportServiceError(
+                "تتداخل هذه الفترة مع فترة حضور معتمدة سابقًا.",
+                code="overlapping_approved_period",
+            )
 
         rows = list(
             ImportRow.objects.select_related("matched_employee")

@@ -459,18 +459,73 @@ def attendance_import_restore(request: HttpRequest, batch_id) -> HttpResponse:
 
 
 # Daily attendance and reporting views
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, Q
 from django.utils.dateparse import parse_date
 
 from organization.models import Department, Employee, EmploymentAssignment
 from organization.selectors import department_ids_in_user_scope
+from core.periods import filter_results_for_period, selected_attendance_period
 
 from .models import CalculationRun, DailyAttendanceResult
-from .services.calculation import AttendanceCalculationError, calculate_all
+from .services.calculation import AttendanceCalculationError, calculate_batch
 
 ATTENDANCE_VIEW_PERMISSION = "attendance.view"
 ATTENDANCE_REPORT_PERMISSION = "attendance.reports"
 ATTENDANCE_CALCULATE_PERMISSION = "attendance.calculate"
+
+REPORT_CATEGORY_FILTERS = {
+    "absent": (
+        "أيام الغياب",
+        Q(attendance_status=DailyAttendanceResult.AttendanceStatus.ABSENT),
+    ),
+    "annual-leave": (
+        "الإجازات السنوية",
+        Q(source_status__icontains="إجازة سنوية")
+        | Q(source_status__icontains="اجازة سنوية"),
+    ),
+    "emergency-leave": (
+        "الإجازات الطارئة",
+        Q(source_status__icontains="إجازة طار")
+        | Q(source_status__icontains="اجازة طار"),
+    ),
+    "medical-leave": (
+        "الإجازات الطبية",
+        Q(source_status__icontains="إجازة طبي")
+        | Q(source_status__icontains="اجازة طبي")
+        | Q(source_status__icontains="إجازة مرض")
+        | Q(source_status__icontains="اجازة مرض"),
+    ),
+    "work-missions": (
+        "مهمات العمل",
+        Q(source_status__icontains="مهمة عمل")
+        | Q(source_status__icontains="مهمه عمل"),
+    ),
+    "delegation": (
+        "الانتداب",
+        Q(source_status__icontains="انتداب"),
+    ),
+    "training": (
+        "التدريب",
+        Q(source_status__icontains="تدريب"),
+    ),
+    "emergency-permission": (
+        "الاستئذان الطارئ",
+        Q(source_status__icontains="استئذان")
+        & Q(source_status__icontains="طار"),
+    ),
+    "medical-permission": (
+        "الاستئذان الطبي",
+        Q(source_status__icontains="استئذان")
+        & (
+            Q(source_status__icontains="طبي")
+            | Q(source_status__icontains="مرض")
+        ),
+    ),
+    "automatic-checkout": (
+        "الانصراف التلقائي",
+        Q(source_status__icontains="انصراف تلقائي"),
+    ),
+}
 
 
 def _can_view_attendance(user) -> bool:
@@ -495,7 +550,7 @@ def attendance_view_required(view_func):
     return wrapped
 
 
-def _result_queryset_for_user(user):
+def _result_queryset_for_user(user, *, attendance_period=None):
     qs = DailyAttendanceResult.objects.filter(
         is_current=True,
         source_record__import_row__batch__archived_at__isnull=True,
@@ -506,6 +561,7 @@ def _result_queryset_for_user(user):
         "primary_location",
         "calculation_run",
     )
+    qs = filter_results_for_period(qs, attendance_period)
     if user.is_superuser:
         return qs
     allowed_ids = department_ids_in_user_scope(user)
@@ -684,7 +740,10 @@ def _records_breadcrumb(label: str):
 @require_http_methods(["GET", "POST"])
 def attendance_record_list(request: HttpRequest) -> HttpResponse:
     filters = request.POST if request.method == "POST" else request.GET
-    qs = _result_queryset_for_user(request.user)
+    attendance_period = selected_attendance_period(request)
+    qs = _result_queryset_for_user(
+        request.user, attendance_period=attendance_period
+    )
     employee_id = filters.get("employee")
     department_id = filters.get("department")
     status = filters.get("status")
@@ -716,7 +775,9 @@ def attendance_record_list(request: HttpRequest) -> HttpResponse:
         _result_display(row, request.user, current_departments)
         for row in page_obj.object_list
     )
-    visible_base = _result_queryset_for_user(request.user)
+    visible_base = _result_queryset_for_user(
+        request.user, attendance_period=attendance_period
+    )
     employees = _employee_choices(visible_base, request.user)
     departments = _department_choices(visible_base)
 
@@ -742,7 +803,10 @@ def attendance_record_list(request: HttpRequest) -> HttpResponse:
 @attendance_view_required
 @require_GET
 def report_overview(request: HttpRequest) -> HttpResponse:
-    qs = _result_queryset_for_user(request.user)
+    attendance_period = selected_attendance_period(request)
+    qs = _result_queryset_for_user(
+        request.user, attendance_period=attendance_period
+    )
     date_from = parse_date(request.GET.get("date_from") or "")
     date_to = parse_date(request.GET.get("date_to") or "")
     if date_from:
@@ -754,19 +818,27 @@ def report_overview(request: HttpRequest) -> HttpResponse:
     summary = qs.aggregate(
         records=Count("id"),
         employees=Count("employee", distinct=True),
-        worked=Sum("worked_minutes"),
-        late=Sum("late_minutes"),
-        early_leave=Sum("early_leave_minutes"),
-        shortfall=Sum("shortfall_minutes"),
     )
-    summary["absent"] = qs.filter(attendance_status=DailyAttendanceResult.AttendanceStatus.ABSENT).count()
+    summary["absent"] = qs.filter(REPORT_CATEGORY_FILTERS["absent"][1]).count()
     summary["outside"] = qs.filter(location_status__in=outside_values).count()
-    summary["worked_text"] = _minutes_text(summary.get("worked") or 0)
-    summary["late_text"] = _minutes_text(summary.get("late") or 0)
-    summary["early_leave_text"] = _minutes_text(summary.get("early_leave") or 0)
-    summary["shortfall_text"] = _minutes_text(summary.get("shortfall") or 0)
+    for key in (
+        "annual-leave",
+        "emergency-leave",
+        "medical-leave",
+        "work-missions",
+        "delegation",
+        "training",
+        "emergency-permission",
+        "medical-permission",
+        "automatic-checkout",
+    ):
+        summary[key.replace("-", "_")] = qs.filter(
+            REPORT_CATEGORY_FILTERS[key][1]
+        ).count()
 
-    latest_runs = CalculationRun.objects.select_related("import_batch", "requested_by")[:8]
+    latest_runs = CalculationRun.objects.select_related(
+        "import_batch", "requested_by"
+    ).filter(import_batch=attendance_period)[:8]
     return render(
         request,
         "attendance/reports/overview.html",
@@ -785,11 +857,65 @@ def report_overview(request: HttpRequest) -> HttpResponse:
 
 
 @attendance_view_required
+@require_GET
+def attendance_category_report(request: HttpRequest, category: str) -> HttpResponse:
+    category_config = REPORT_CATEGORY_FILTERS.get(category)
+    if category_config is None:
+        raise Http404
+    label, category_filter = category_config
+    attendance_period = selected_attendance_period(request)
+    qs = _result_queryset_for_user(
+        request.user, attendance_period=attendance_period
+    ).filter(category_filter)
+    rows = list(
+        qs.values("employee_id", "employee__full_name_ar")
+        .annotate(record_count=Count("id"))
+        .order_by("-record_count", "employee__full_name_ar")
+    )
+    employee_ids = [row["employee_id"] for row in rows]
+    employee_map = {
+        employee.id: employee
+        for employee in Employee.objects.select_related("identity").filter(
+            id__in=employee_ids
+        )
+    }
+    department_names = {
+        employee_id: department_name
+        for employee_id, department_name in qs.order_by(
+            "employee_id", "attendance_date"
+        ).values_list("employee_id", "department__name_ar")
+    }
+    for row in rows:
+        employee = employee_map[row["employee_id"]]
+        row["national_id"] = _national_id_display(employee, request.user)
+        row["department_name"] = department_names.get(row["employee_id"]) or "—"
+    page_obj = Paginator(rows, 40).get_page(request.GET.get("page"))
+    return render(
+        request,
+        "attendance/reports/category.html",
+        {
+            "page_title": label,
+            "page_description": "الموظفون المطابقون للإحصائية ضمن الفترة المختارة ونطاق الصلاحية.",
+            "breadcrumb_items": (
+                {"label": "الرئيسية", "url_name": "core:dashboard"},
+                {"label": "التقارير", "url_name": "attendance:report_overview"},
+                {"label": label},
+            ),
+            "category_label": label,
+            "page_obj": page_obj,
+        },
+    )
+
+
+@attendance_view_required
 @require_http_methods(["GET", "POST"])
 def outside_location_report(request: HttpRequest) -> HttpResponse:
     filters = request.POST if request.method == "POST" else request.GET
     outside_values = (DailyAttendanceResult.LocationStatus.BOTH_OUTSIDE,)
-    qs = _result_queryset_for_user(request.user)
+    attendance_period = selected_attendance_period(request)
+    qs = _result_queryset_for_user(
+        request.user, attendance_period=attendance_period
+    )
     department_id = filters.get("department")
     employee_id = filters.get("employee")
     employee_search = filters.get("employee_search", "")
@@ -903,7 +1029,9 @@ def outside_location_report(request: HttpRequest) -> HttpResponse:
                 or current_departments.get(row["employee_id"])
                 or "—"
             )
-    visible_base = _result_queryset_for_user(request.user)
+    visible_base = _result_queryset_for_user(
+        request.user, attendance_period=attendance_period
+    )
     employees = _employee_choices(visible_base, request.user)
     departments = _department_choices(visible_base)
 
@@ -933,8 +1061,11 @@ def outside_location_report(request: HttpRequest) -> HttpResponse:
 @_permission_required(ATTENDANCE_CALCULATE_PERMISSION)
 @require_POST
 def run_attendance_calculation(request: HttpRequest) -> HttpResponse:
+    attendance_period = selected_attendance_period(request)
     try:
-        summary = calculate_all(requested_by=request.user)
+        if attendance_period is None:
+            raise AttendanceCalculationError("لا توجد فترة حضور معتمدة للاحتساب.")
+        summary = calculate_batch(attendance_period, requested_by=request.user)
     except AttendanceCalculationError as exc:
         messages.error(request, str(exc))
     else:

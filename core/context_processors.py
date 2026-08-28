@@ -1,6 +1,11 @@
 from .navigation import get_navigation_groups
 from django.core.exceptions import ObjectDoesNotExist
 from organization.access import user_has_business_permission
+from .periods import (
+    available_attendance_periods,
+    selected_attendance_period,
+    user_can_select_attendance_period,
+)
 
 
 EMPLOYEE_NAVIGATION = (
@@ -60,4 +65,23 @@ def application_shell(request):
         "application_description": "إدارة وتحليل الحضور والمخالفات والمعالجات",
         "navigation_groups": navigation,
         "employee_portal_only": employee_portal_only,
+        "can_select_attendance_period": (
+            not employee_portal_only
+            and user is not None
+            and user_can_select_attendance_period(user)
+        ),
+        "attendance_periods": (
+            available_attendance_periods()
+            if not employee_portal_only
+            and user is not None
+            and user_can_select_attendance_period(user)
+            else ()
+        ),
+        "selected_attendance_period": (
+            selected_attendance_period(request)
+            if not employee_portal_only
+            and user is not None
+            and user.is_authenticated
+            else None
+        ),
     }

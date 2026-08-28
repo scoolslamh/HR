@@ -7,6 +7,7 @@ app_name = "attendance"
 urlpatterns = [
     path("attendance/records/", views.attendance_record_list, name="record_list"),
     path("attendance/reports/", views.report_overview, name="report_overview"),
+    path("attendance/reports/category/<slug:category>/", views.attendance_category_report, name="category_report"),
     path("attendance/reports/outside-location/", views.outside_location_report, name="outside_location_report"),
     path("attendance/calculate/", views.run_attendance_calculation, name="run_calculation"),
     path("attendance/imports/", views.attendance_import_list, name="import_list"),

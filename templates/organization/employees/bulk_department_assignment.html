@@ -10,7 +10,7 @@
   <section class="card mb-4">
     <form method="get" class="card-body">
       <div class="row g-3 align-items-end">
-        <div class="col-12 col-md-5"><label class="form-label" for="assignment-search">بحث</label><input class="form-control" id="assignment-search" name="search" value="{{ search }}" placeholder="الاسم أو الرقم الوظيفي"></div>
+        <div class="col-12 col-md-5"><label class="form-label" for="assignment-search">بحث</label><input class="form-control" id="assignment-search" name="search" value="{{ search }}" placeholder="اسم الموظف"></div>
         <div class="col-12 col-md-4"><label class="form-label" for="current-department">القسم الحالي</label><select class="form-select" id="current-department" name="department"><option value="">جميع الأقسام</option>{% for department in departments %}<option value="{{ department.id }}"{% if current_department == department.id|stringformat:'s' %} selected{% endif %}>{{ department.name_ar }}</option>{% endfor %}</select></div>
         <div class="col-12 col-md-3 d-flex gap-2"><button class="btn btn-primary flex-fill" type="submit">تطبيق</button><a class="btn btn-outline-secondary" href="{% url 'organization:employee_bulk_department_assignment' %}">مسح</a></div>
       </div>

@@ -1,5 +1,14 @@
 <header class="navbar navbar-expand-md d-print-none application-header">
   <div class="container-xl header-layout">
+    {% if can_select_attendance_period %}
+      <form method="post" action="{% url 'core:select_attendance_period' %}" class="order-1 d-flex align-items-center gap-2">
+        {% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <label class="small fw-semibold text-nowrap" for="attendance-period">الفترة</label>
+        <select class="form-select form-select-sm" id="attendance-period" name="attendance_period" onchange="this.form.submit()">
+          {% for period in attendance_periods %}<option value="{{ period.id }}"{% if selected_attendance_period.id == period.id %} selected{% endif %}>{{ period.period_start|date:"Y/m/d" }} — {{ period.period_end|date:"Y/m/d" }}</option>{% empty %}<option>لا توجد فترة معتمدة</option>{% endfor %}
+        </select>
+      </form>
+    {% endif %}
     <div class="global-search order-3 order-md-1" role="search">
       <label class="visually-hidden" for="global-search">البحث العام</label>
       <span class="global-search-icon" aria-hidden="true"><i data-lucide="search"></i></span>

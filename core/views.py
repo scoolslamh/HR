@@ -2,11 +2,22 @@ from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.views import LoginView
 from django.shortcuts import render
+from django.shortcuts import redirect
+from django.http import HttpRequest, HttpResponse
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.http import require_POST
+import uuid
 from django.urls import reverse_lazy
 from django.views.generic import TemplateView
 
 from accounts.forms import ArabicAuthenticationForm
 from .selectors import dashboard_context_for_user
+from .periods import (
+    ATTENDANCE_PERIOD_SESSION_KEY,
+    available_attendance_periods,
+    selected_attendance_period,
+    user_can_select_attendance_period,
+)
 
 
 class PortalLoginView(LoginView):
@@ -39,11 +50,43 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 "page_description": "ملخص فعلي لمؤشرات الحضور والانضباط الوظيفي ضمن نطاقك التنظيمي.",
                 "breadcrumb_items": ({"label": "لوحة المعلومات"},),
                 "import_columns": ("الملف", "الفترة", "الحالة", "وقت الرفع"),
-                "violation_columns": ("الموظف", "نوع المخالفة", "الحالة", "التاريخ"),
+                "ranking_columns": ("الموظف", "عدد الأيام"),
             }
         )
-        context.update(dashboard_context_for_user(self.request.user))
+        context.update(
+            dashboard_context_for_user(
+                self.request.user,
+                attendance_period=selected_attendance_period(self.request),
+            )
+        )
         return context
+
+
+@require_POST
+def select_attendance_period(request: HttpRequest) -> HttpResponse:
+    if not request.user.is_authenticated or not user_can_select_attendance_period(
+        request.user
+    ):
+        return render(request, "core/errors/403.html", status=403)
+    try:
+        period_id = uuid.UUID(request.POST.get("attendance_period", ""))
+    except ValueError:
+        period_id = None
+    period = (
+        available_attendance_periods().filter(pk=period_id).first()
+        if period_id
+        else None
+    )
+    if period is not None:
+        request.session[ATTENDANCE_PERIOD_SESSION_KEY] = str(period.id)
+    target = request.POST.get("next") or "core:dashboard"
+    if not url_has_allowed_host_and_scheme(
+        target,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        target = "core:dashboard"
+    return redirect(target)
 
 
 class PlaceholderView(LoginRequiredMixin, TemplateView):

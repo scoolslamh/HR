@@ -2,7 +2,7 @@ from django.contrib.auth.views import LogoutView
 from django.urls import path
 
 from .navigation import PLACEHOLDER_PAGES
-from .views import DashboardView, PlaceholderView, PortalLoginView
+from .views import DashboardView, PlaceholderView, PortalLoginView, select_attendance_period
 
 app_name = "core"
 
@@ -10,6 +10,7 @@ urlpatterns = [
     path("", DashboardView.as_view(), name="dashboard"),
     path("login/", PortalLoginView.as_view(), name="login"),
     path("logout/", LogoutView.as_view(), name="logout"),
+    path("attendance-period/select/", select_attendance_period, name="select_attendance_period"),
 ]
 
 urlpatterns += [

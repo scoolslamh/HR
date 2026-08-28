@@ -3,8 +3,11 @@ from django.contrib.auth import SESSION_KEY, get_user_model
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
+from datetime import date, timedelta
 
 from accounts.models import Permission, Role, RolePermission, UserRole
+from attendance.models import ImportBatch
+from .periods import ATTENDANCE_PERIOD_SESSION_KEY
 
 from .navigation import PLACEHOLDER_PAGES
 from .views import error_403
@@ -31,10 +34,14 @@ class ApplicationShellTests(TestCase):
         self.assertContains(response, "منصة الحضور والانضباط الوظيفي")
         self.assertContains(response, "ابحث عن موظف أو قسم أو مخالفة...")
         self.assertContains(response, "مرحبًا، علي الشهري")
-        self.assertContains(response, "إجمالي الموظفين")
-        self.assertContains(response, "ضمن نطاقك التنظيمي")
-        self.assertContains(response, "رسم الحضور الأسبوعي")
+        self.assertContains(response, "عدد الموظفين")
+        self.assertContains(response, "ضمن النطاق التنظيمي")
+        self.assertContains(response, "نسبة انضباط فرق العمل")
+        self.assertContains(response, "أكثر ثلاثة موظفين غيابًا")
+        self.assertNotContains(response, "رسم الحضور الأسبوعي")
+        self.assertNotContains(response, "آخر التنبيهات")
         self.assertNotContains(response, "بيانات توضيحية")
+        self.assertNotContains(response, "توضيحي")
         self.assertContains(response, "lucide.min.js")
         self.assertNotContains(response, "tabler-icons.min.css")
 
@@ -90,6 +97,62 @@ class ApplicationShellTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertContains(response, "الصفحة غير موجودة", status_code=404)
+
+
+class AttendancePeriodSelectionTests(TestCase):
+    def setUp(self):
+        self.admin = get_user_model().objects.create_superuser(
+            username="period-admin",
+            password="Strong-Test-Pass-2026",
+        )
+        self.client.force_login(self.admin)
+        now = timezone.now()
+        self.older = self.create_period(
+            "older", date(2026, 8, 10), date(2026, 8, 16), now - timedelta(days=7)
+        )
+        self.latest = self.create_period(
+            "latest", date(2026, 8, 17), date(2026, 8, 23), now
+        )
+
+    def create_period(self, suffix, period_start, period_end, approved_at):
+        return ImportBatch.objects.create(
+            original_filename=f"period-{suffix}.xlsx",
+            display_name=f"فترة {suffix}",
+            storage_key=f"attendance/{suffix}.xlsx",
+            file_sha256=suffix.ljust(64, "0"),
+            file_size_bytes=100,
+            mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            period_start=period_start,
+            period_end=period_end,
+            status=ImportBatch.Status.APPROVED,
+            approved_by=self.admin,
+            approved_at=approved_at,
+        )
+
+    def test_latest_approved_period_is_selected_automatically(self):
+        response = self.client.get(reverse("core:dashboard"))
+
+        self.assertEqual(
+            self.client.session[ATTENDANCE_PERIOD_SESSION_KEY], str(self.latest.id)
+        )
+        self.assertContains(response, "2026/08/17")
+        self.assertContains(response, "2026/08/23")
+
+    def test_general_manager_can_switch_to_an_older_period(self):
+        response = self.client.post(
+            reverse("core:select_attendance_period"),
+            {
+                "attendance_period": str(self.older.id),
+                "next": reverse("attendance:report_overview"),
+            },
+        )
+
+        self.assertRedirects(
+            response, reverse("attendance:report_overview"), fetch_redirect_response=False
+        )
+        self.assertEqual(
+            self.client.session[ATTENDANCE_PERIOD_SESSION_KEY], str(self.older.id)
+        )
 
 
 class AuthenticationFlowTests(TestCase):

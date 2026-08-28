@@ -1,0 +1,13 @@
+{% extends "core/base.html" %}
+{% block content %}
+<section class="card">
+  <div class="card-header"><h2 class="card-title">{{ category_label }}</h2></div>
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table table-hover">
+      <thead><tr><th>الموظف</th><th>السجل المدني</th><th>القسم</th><th>عدد السجلات</th></tr></thead>
+      <tbody>{% for row in page_obj %}<tr><th scope="row">{{ row.employee__full_name_ar }}</th><td dir="ltr">{{ row.national_id }}</td><td>{{ row.department_name }}</td><td><span class="badge bg-blue-lt">{{ row.record_count }}</span></td></tr>{% empty %}<tr><td colspan="4" class="text-center text-secondary py-5">لا توجد سجلات مطابقة ضمن الفترة المختارة.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% include "attendance/import/_pagination.html" with page_obj=page_obj %}
+</section>
+{% endblock %}
