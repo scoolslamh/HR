@@ -13,13 +13,19 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods
 
 from audit.models import AuditLog
+from organization.access import user_has_business_permission
 from organization.models import EmployeeIdentity
 from organization.services.exceptions import SecurityConfigurationError
 from organization.services.identity import national_id_digest
 
 from .forms import NationalIdLoginForm, RoleAccessForm, UserAccessForm
 from .models import Role, User
-from .services import save_role_access, save_user_access
+from .services import (
+    delete_role_permanently,
+    delete_user_permanently,
+    save_role_access,
+    save_user_access,
+)
 
 
 @require_http_methods(["GET", "POST"])
@@ -104,6 +110,21 @@ def system_admin_required(view_func):
     return wrapped
 
 
+def general_manager_required(view_func):
+    @wraps(view_func)
+    def wrapped(request: HttpRequest, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return redirect_to_login(request.get_full_path())
+        if not request.user.is_active or not (
+            request.user.is_superuser
+            or user_has_business_permission(request.user, "clarifications.view_all")
+        ):
+            return render(request, "core/errors/403.html", status=403)
+        return view_func(request, *args, **kwargs)
+
+    return wrapped
+
+
 def _breadcrumbs(label):
     return (
         {"label": "الرئيسية", "url_name": "core:dashboard"},
@@ -112,7 +133,7 @@ def _breadcrumbs(label):
     )
 
 
-@system_admin_required
+@general_manager_required
 @require_GET
 def user_list(request: HttpRequest) -> HttpResponse:
     users = User.objects.select_related("employee").prefetch_related(
@@ -142,8 +163,27 @@ def user_list(request: HttpRequest) -> HttpResponse:
             "breadcrumb_items": _breadcrumbs("القائمة"),
             "page_obj": page_obj,
             "search": search,
+            "can_edit_users": request.user.is_superuser,
         },
     )
+
+
+@general_manager_required
+@require_http_methods(["POST"])
+def user_delete(request: HttpRequest, user_id) -> HttpResponse:
+    user = get_object_or_404(User, pk=user_id)
+    try:
+        deleted = delete_user_permanently(user=user, actor=request.user)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            "تم حذف المستخدم نهائيًا، مع إزالة "
+            f"{deleted['role_assignments']} إسناد دور و"
+            f"{deleted['department_scopes']} نطاق قسم.",
+        )
+    return redirect("accounts:user_list")
 
 
 @system_admin_required
@@ -235,3 +275,35 @@ def role_form(request: HttpRequest, role_id=None) -> HttpResponse:
             "permission_groups": form.permission_groups,
         },
     )
+
+
+@system_admin_required
+@require_http_methods(["GET", "POST"])
+def role_delete(request: HttpRequest, role_id) -> HttpResponse:
+    role = get_object_or_404(Role, pk=role_id)
+    if request.method == "GET":
+        return render(
+            request,
+            "accounts/roles/confirm_delete.html",
+            {
+                "page_title": "تأكيد حذف الدور",
+                "page_description": "راجع تأثير الحذف قبل تنفيذ الإجراء النهائي.",
+                "breadcrumb_items": _breadcrumbs("تأكيد حذف الدور"),
+                "role": role,
+                "user_assignments_count": role.user_assignments.count(),
+                "permission_assignments_count": role.permission_assignments.count(),
+                "department_scopes_count": role.department_scopes.count(),
+            },
+        )
+    try:
+        deleted = delete_role_permanently(role=role, actor=request.user)
+    except ValueError as exc:
+        messages.error(request, str(exc))
+    else:
+        messages.success(
+            request,
+            "تم حذف الدور نهائيًا، مع إزالة "
+            f"{deleted['user_assignments']} إسناد مستخدم و"
+            f"{deleted['permission_assignments']} ارتباط صلاحية.",
+        )
+    return redirect("accounts:role_list")

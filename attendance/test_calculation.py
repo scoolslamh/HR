@@ -499,6 +499,29 @@ class AttendanceCalculationTests(TestCase):
         self.assertEqual(executive_missions.status_code, 200)
         self.assertContains(executive_missions, "موظف الاختبار")
 
+    def test_reviewing_user_delete_is_blocked_with_safe_message(self):
+        absence = self._record(source_status="غياب")
+        calculate_records(records=[absence], requested_by=self.user, import_batch=self.batch)
+        clarification = ClarificationRequest.objects.get()
+        reviewer = get_user_model().objects.create_user(
+            username="protected-reviewer", password="Strong-Test-Pass-2026"
+        )
+        clarification.status = ClarificationRequest.Status.APPROVED
+        clarification.reviewed_by = reviewer
+        clarification.reviewed_at = timezone.now()
+        clarification.save(
+            update_fields=("status", "reviewed_by", "reviewed_at", "updated_at")
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.post(
+            reverse("accounts:user_delete", args=(reviewer.id,)), follow=True
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "مسجل كمعتمد لإفادات سابقة")
+        self.assertTrue(get_user_model().objects.filter(pk=reviewer.id).exists())
+
     def test_employee_portal_counts_work_missions_from_sheet_status(self):
         first = self._record(source_status="مهمة عمل رسمية")
         second = self._record(

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from django.core.exceptions import ObjectDoesNotExist
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import ProtectedError
 from django.utils import timezone
 
 from audit.models import AuditLog
@@ -178,3 +179,104 @@ def save_role_access(*, role: Role, actor: User, permissions, created: bool) -> 
         reason="إدارة الدور والصلاحيات",
     )
     return role
+
+
+@transaction.atomic
+def delete_role_permanently(*, role: Role, actor: User) -> dict[str, int]:
+    """Delete a non-system role and its direct access assignments atomically."""
+    role = Role.objects.select_for_update().get(pk=role.pk)
+    if role.is_system:
+        raise ValueError("لا يمكن حذف دور نظامي نهائيًا.")
+    if role.department_scopes.exists():
+        raise ValueError(
+            "لا يمكن حذف الدور لأنه مرتبط بنطاقات أقسام. أزل هذه النطاقات أولًا."
+        )
+
+    role_id = role.id
+    role_snapshot = {
+        "code": role.code,
+        "name_ar": role.name_ar,
+        "is_active": role.is_active,
+    }
+    user_assignments = UserRole.objects.filter(role=role).count()
+    permission_assignments = RolePermission.objects.filter(role=role).count()
+
+    UserRole.objects.filter(role=role).delete()
+    RolePermission.objects.filter(role=role).delete()
+    role.delete()
+
+    AuditLog.objects.create(
+        actor_user=actor,
+        actor_username_snapshot=actor.username,
+        action="role.delete",
+        module="accounts",
+        object_type="Role",
+        object_id=role_id,
+        object_repr_masked=role_snapshot["name_ar"][:255],
+        before_json={
+            **role_snapshot,
+            "user_assignments_deleted": user_assignments,
+            "permission_assignments_deleted": permission_assignments,
+        },
+        after_json=None,
+        reason="حذف الدور نهائيًا من شاشة الأدوار والصلاحيات.",
+        outcome=AuditLog.Outcome.SUCCESS,
+    )
+    return {
+        "user_assignments": user_assignments,
+        "permission_assignments": permission_assignments,
+    }
+
+
+@transaction.atomic
+def delete_user_permanently(*, user: User, actor: User) -> dict[str, int]:
+    """Delete a regular user while preserving operational and audit records."""
+    user = User.objects.select_for_update().get(pk=user.pk)
+    if user.pk == actor.pk:
+        raise ValueError("لا يمكنك حذف حسابك الحالي.")
+    if user.is_superuser:
+        raise ValueError("لا يمكن حذف حساب مدير نظام نهائيًا من هذه الصفحة.")
+    if user.clarification_evidence_uploaded.exists():
+        raise ValueError(
+            "لا يمكن حذف المستخدم لأنه مرتبط بمرفقات إفادات محفوظة. يمكن تعطيل الحساب بدلًا من ذلك."
+        )
+    if user.clarifications_reviewed.exists():
+        raise ValueError(
+            "لا يمكن حذف المستخدم لأنه مسجل كمعتمد لإفادات سابقة. يمكن تعطيل الحساب بدلًا من ذلك."
+        )
+
+    user_id = user.id
+    username = user.username
+    role_assignments = UserRole.objects.filter(user=user).count()
+    department_scopes = user.department_scopes.count()
+
+    UserRole.objects.filter(user=user).delete()
+    user.department_scopes.all().delete()
+    try:
+        user.delete()
+    except (ProtectedError, IntegrityError) as exc:
+        raise ValueError(
+            "لا يمكن حذف المستخدم لارتباطه بسجلات تشغيلية محمية. يمكن تعطيل الحساب بدلًا من ذلك."
+        ) from exc
+
+    AuditLog.objects.create(
+        actor_user=actor,
+        actor_username_snapshot=actor.username,
+        action="user.delete",
+        module="accounts",
+        object_type="User",
+        object_id=user_id,
+        object_repr_masked=username[:255],
+        before_json={
+            "username": username,
+            "role_assignments_deleted": role_assignments,
+            "department_scopes_deleted": department_scopes,
+        },
+        after_json=None,
+        reason="حذف المستخدم نهائيًا من شاشة إدارة المستخدمين.",
+        outcome=AuditLog.Outcome.SUCCESS,
+    )
+    return {
+        "role_assignments": role_assignments,
+        "department_scopes": department_scopes,
+    }

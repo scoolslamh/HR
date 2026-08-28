@@ -1,0 +1,34 @@
+{% extends "core/base.html" %}
+
+{% block content %}
+  <section class="card border-danger">
+    <div class="card-header">
+      <h2 class="card-title text-danger">تنبيه: حذف نهائي للدور</h2>
+    </div>
+    <div class="card-body">
+      <div class="alert alert-danger" role="alert">
+        سيتم حذف الدور <strong>{{ role.name_ar }}</strong> نهائيًا، ولا يمكن التراجع عن هذا الإجراء.
+      </div>
+      <dl class="row mb-0">
+        <dt class="col-sm-4">رمز الدور</dt><dd class="col-sm-8">{{ role.code }}</dd>
+        <dt class="col-sm-4">إسنادات المستخدمين</dt><dd class="col-sm-8">{{ user_assignments_count }}</dd>
+        <dt class="col-sm-4">روابط الصلاحيات</dt><dd class="col-sm-8">{{ permission_assignments_count }}</dd>
+        <dt class="col-sm-4">نطاقات الأقسام</dt><dd class="col-sm-8">{{ department_scopes_count }}</dd>
+      </dl>
+      {% if department_scopes_count %}
+        <div class="alert alert-warning mt-3 mb-0">
+          لا يمكن حذف هذا الدور قبل إزالة نطاقات الأقسام المرتبطة به.
+        </div>
+      {% endif %}
+    </div>
+    <div class="card-footer d-flex justify-content-end gap-2">
+      <a class="btn btn-link" href="{% url 'accounts:role_list' %}">إلغاء والعودة</a>
+      <form method="post">
+        {% csrf_token %}
+        <button class="btn btn-danger" type="submit"{% if role.is_system or department_scopes_count %} disabled{% endif %}>
+          تأكيد الحذف النهائي
+        </button>
+      </form>
+    </div>
+  </section>
+{% endblock %}

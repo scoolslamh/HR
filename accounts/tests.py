@@ -205,3 +205,105 @@ class UserAccessManagementTests(TestCase):
                 revoked_at__isnull=True,
             ).exists()
         )
+
+    def test_admin_can_permanently_delete_custom_role_and_its_assignments(self):
+        role = Role.objects.create(code="temporary-role", name_ar="دور مؤقت")
+        permission = Permission.objects.get(code="attendance.view")
+        RolePermission.objects.create(role=role, permission=permission)
+        user = get_user_model().objects.create_user(
+            username="temporary-role-user", password="Strong-Test-Pass-2026"
+        )
+        UserRole.objects.create(user=user, role=role)
+        role_id = role.id
+
+        response = self.client.post(reverse("accounts:role_delete", args=(role_id,)))
+
+        self.assertRedirects(response, reverse("accounts:role_list"))
+        self.assertFalse(Role.objects.filter(pk=role_id).exists())
+        self.assertFalse(UserRole.objects.filter(user=user, role_id=role_id).exists())
+        self.assertFalse(RolePermission.objects.filter(role_id=role_id).exists())
+        self.assertTrue(
+            AuditLog.objects.filter(action="role.delete", object_id=role_id).exists()
+        )
+
+    def test_system_role_cannot_be_permanently_deleted(self):
+        response = self.client.post(
+            reverse("accounts:role_delete", args=(self.role.id,))
+        )
+
+        self.assertRedirects(response, reverse("accounts:role_list"))
+        self.assertTrue(Role.objects.filter(pk=self.role.id).exists())
+        self.assertFalse(
+            AuditLog.objects.filter(action="role.delete", object_id=self.role.id).exists()
+        )
+
+    def test_role_delete_shows_confirmation_before_post(self):
+        role = Role.objects.create(code="confirm-delete-role", name_ar="دور للتأكيد")
+        response = self.client.get(
+            reverse("accounts:role_delete", args=(role.id,))
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "تأكيد الحذف النهائي")
+        self.assertContains(response, role.name_ar)
+        self.assertTrue(Role.objects.filter(pk=role.id).exists())
+
+    def test_general_manager_can_delete_regular_user_after_confirmation_page(self):
+        manager = get_user_model().objects.create_user(
+            username="general-manager-delete", password="Strong-Test-Pass-2026"
+        )
+        general_manager_role = Role.objects.get(code="general_manager")
+        UserRole.objects.create(user=manager, role=general_manager_role)
+        target = get_user_model().objects.create_user(
+            username="delete-target", password="Strong-Test-Pass-2026"
+        )
+        target_id = target.id
+        UserRole.objects.create(user=target, role=self.role)
+        self.employee_b.user = target
+        self.employee_b.save(update_fields=("user", "updated_at"))
+        self.client.force_login(manager)
+
+        list_response = self.client.get(reverse("accounts:user_list"))
+        self.assertEqual(list_response.status_code, 200)
+        self.assertContains(list_response, "حذف نهائي")
+        response = self.client.post(
+            reverse("accounts:user_delete", args=(target_id,))
+        )
+
+        self.assertRedirects(response, reverse("accounts:user_list"))
+        self.assertFalse(get_user_model().objects.filter(pk=target_id).exists())
+        self.employee_b.refresh_from_db()
+        self.assertIsNone(self.employee_b.user_id)
+        self.assertTrue(
+            AuditLog.objects.filter(action="user.delete", object_id=target_id).exists()
+        )
+
+    def test_general_manager_cannot_delete_self_or_superuser(self):
+        manager = get_user_model().objects.create_user(
+            username="general-manager-protected", password="Strong-Test-Pass-2026"
+        )
+        UserRole.objects.create(
+            user=manager, role=Role.objects.get(code="general_manager")
+        )
+        self.client.force_login(manager)
+
+        self.client.post(reverse("accounts:user_delete", args=(manager.id,)))
+        self.client.post(reverse("accounts:user_delete", args=(self.admin.id,)))
+
+        self.assertTrue(get_user_model().objects.filter(pk=manager.id).exists())
+        self.assertTrue(get_user_model().objects.filter(pk=self.admin.id).exists())
+
+    def test_user_without_general_manager_permission_cannot_delete_user(self):
+        ordinary = get_user_model().objects.create_user(
+            username="ordinary-delete-user", password="Strong-Test-Pass-2026"
+        )
+        target = get_user_model().objects.create_user(
+            username="ordinary-delete-target", password="Strong-Test-Pass-2026"
+        )
+        self.client.force_login(ordinary)
+
+        response = self.client.post(
+            reverse("accounts:user_delete", args=(target.id,))
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(get_user_model().objects.filter(pk=target.id).exists())

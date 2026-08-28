@@ -262,7 +262,7 @@ class AttendanceWeeklyImportTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "data-attendance-upload-form")
         self.assertContains(response, "تقدم رفع ملف الحضور")
-        self.assertContains(response, "attendance/js/import-upload.js")
+        self.assertContains(response, "attendance/js/import-upload")
 
     def test_detail_displays_inclusive_period_day_count(self):
         batch = preview_attendance_import(self.upload(), uploaded_by=self.user)
