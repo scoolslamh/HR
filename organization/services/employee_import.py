@@ -76,8 +76,6 @@ REQUIRED_HEADERS = frozenset(
     {
         EMPLOYEE_NAME_HEADER,
         NATIONAL_ID_HEADER,
-        DEPARTMENT_HEADER,
-        LOCATION_HEADER,
     }
 )
 
@@ -277,15 +275,35 @@ def _required_text(
     return value[:maximum]
 
 
+def _optional_text(
+    raw_payload: dict[str, str],
+    header: str,
+    field_name: str,
+    maximum: int,
+    issues: list[RowIssue],
+) -> str:
+    value = _clean_text(raw_payload.get(header, ""))
+    if len(value) > maximum:
+        issues.append(
+            RowIssue(
+                error_code="value_too_long",
+                severity=EmployeeImportError.Severity.ERROR,
+                field_name=field_name,
+                message_ar=f"قيمة حقل {header} أطول من الحد المسموح.",
+            )
+        )
+    return value[:maximum]
+
+
 def _prepare_row(row_number: int, raw_payload: dict[str, str]) -> PreparedRow:
     issues: list[RowIssue] = []
     full_name = _required_text(
         raw_payload, EMPLOYEE_NAME_HEADER, "full_name_ar", 250, issues
     )
-    department_name = _required_text(
+    department_name = _optional_text(
         raw_payload, DEPARTMENT_HEADER, "department", 200, issues
     )
-    location_name = _required_text(
+    location_name = _optional_text(
         raw_payload, LOCATION_HEADER, "location", 200, issues
     )
     manager_name = _clean_text(raw_payload.get(MANAGER_NAME_HEADER, ""))
@@ -822,7 +840,7 @@ def _resolve_department(
 def _resolve_location(
     name: str,
     *,
-    department: Department,
+    department: Department | None,
     approved_by,
     create_missing: bool,
 ) -> tuple[Location, bool]:
@@ -1108,19 +1126,20 @@ def approve_employee_import(
             created_departments = 0
             created_locations = 0
             for prepared in prepared_rows:
-                department, department_created = _resolve_department(
-                    prepared.department_name,
-                    effective_date=effective_date,
-                    approved_by=approved_by,
-                    create_missing=create_missing_references,
-                )
-                departments[prepared.department_name] = department
-                created_departments += int(department_created)
-                location_key = (prepared.location_name, prepared.department_name)
-                if location_key not in locations:
+                if prepared.department_name:
+                    department, department_created = _resolve_department(
+                        prepared.department_name,
+                        effective_date=effective_date,
+                        approved_by=approved_by,
+                        create_missing=create_missing_references,
+                    )
+                    departments[prepared.department_name] = department
+                    created_departments += int(department_created)
+                if prepared.location_name:
+                    location_key = (prepared.location_name, prepared.department_name)
                     location, location_created = _resolve_location(
                         prepared.location_name,
-                        department=department,
+                        department=departments.get(prepared.department_name),
                         approved_by=approved_by,
                         create_missing=create_missing_references,
                     )
@@ -1158,27 +1177,29 @@ def approve_employee_import(
                     ) or existing_managers.get(prepared.manager_national_id_hash)
                     if manager is not None and manager.id == employee.id:
                         manager = None
-                department = departments[prepared.department_name]
-                location = locations[
+                department = departments.get(prepared.department_name)
+                location = locations.get(
                     (prepared.location_name, prepared.department_name)
-                ]
-                changed_assignments += int(
-                    _set_assignment(
-                        employee,
-                        department,
-                        manager,
-                        effective_date=effective_date,
-                        approved_by=approved_by,
-                    )
                 )
-                changed_locations += int(
-                    _set_primary_location(
-                        employee,
-                        location,
-                        effective_date=effective_date,
-                        approved_by=approved_by,
+                if department is not None:
+                    changed_assignments += int(
+                        _set_assignment(
+                            employee,
+                            department,
+                            manager,
+                            effective_date=effective_date,
+                            approved_by=approved_by,
+                        )
                     )
-                )
+                if location is not None:
+                    changed_locations += int(
+                        _set_primary_location(
+                            employee,
+                            location,
+                            effective_date=effective_date,
+                            approved_by=approved_by,
+                        )
+                    )
 
             approved_at = timezone.now()
             locked_batch.status = EmployeeImportBatch.Status.APPROVED

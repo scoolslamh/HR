@@ -252,7 +252,7 @@ class EmployeeImportPreviewTests(EmployeeImportTestCase):
 
     def test_missing_required_column_rejects_file_without_persisting_batch(self) -> None:
         headers = tuple(
-            header for header in EMPLOYEE_IMPORT_HEADERS if header != DEPARTMENT_HEADER
+            header for header in EMPLOYEE_IMPORT_HEADERS if header != EMPLOYEE_NAME_HEADER
         )
 
         with self.assertRaises(ImportFileValidationError) as raised:
@@ -264,6 +264,19 @@ class EmployeeImportPreviewTests(EmployeeImportTestCase):
         self.assertEqual(raised.exception.code, "missing_required_headers")
         self.assertEqual(EmployeeImportBatch.objects.count(), 0)
         self.assertEqual(EmployeeImportRow.objects.count(), 0)
+
+    def test_name_and_national_id_only_are_enough_for_preview(self) -> None:
+        headers = (EMPLOYEE_NAME_HEADER, NATIONAL_ID_HEADER)
+        batch = preview_employee_import(
+            self.workbook_upload([self.employee_row()], headers=headers),
+            uploaded_by=self.user,
+        )
+
+        self.assertEqual(batch.status, EmployeeImportBatch.Status.PREVIEW_READY)
+        self.assertEqual(batch.error_rows, 0)
+        row = batch.rows.get()
+        self.assertEqual(row.display_data_json["department_name"], "")
+        self.assertEqual(row.display_data_json["location_name"], "")
 
     def test_invalid_national_id_is_a_blocking_masked_row_error(self) -> None:
         invalid_value = "12345"
@@ -365,6 +378,20 @@ class EmployeeImportPreviewTests(EmployeeImportTestCase):
 
 
 class EmployeeImportApprovalTests(EmployeeImportTestCase):
+    def test_name_and_national_id_only_create_employee_without_assignments(self) -> None:
+        headers = (EMPLOYEE_NAME_HEADER, NATIONAL_ID_HEADER)
+        batch = preview_employee_import(
+            self.workbook_upload([self.employee_row()], headers=headers),
+            uploaded_by=self.user,
+        )
+
+        approve_employee_import(batch, approved_by=self.user)
+
+        employee = Employee.objects.get()
+        self.assertEqual(employee.full_name_ar, "نورة العتيبي")
+        self.assertFalse(employee.employment_assignments.exists())
+        self.assertFalse(employee.primary_location_assignments.exists())
+
     def test_employee_without_manager_is_imported_with_department(self) -> None:
         batch = preview_employee_import(
             self.workbook_upload([self.employee_row()]),
