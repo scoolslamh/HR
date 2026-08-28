@@ -27,8 +27,12 @@ staticfiles/
 
 # Environment files
 .env
+*.env
 .env.*
 !.env.example
+
+# Sensitive user transfer exports
+users-transfer.json
 
 # Logs
 *.log
