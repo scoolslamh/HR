@@ -28,6 +28,7 @@ from .identity import (
     normalize_saudi_mobile,
 )
 from .directory import (
+    bulk_assign_employee_departments,
     bulk_set_employee_archive_status,
     create_manual_employee,
     disable_reference,
@@ -64,4 +65,5 @@ __all__ = (
     "update_employee",
     "create_manual_employee",
     "bulk_set_employee_archive_status",
+    "bulk_assign_employee_departments",
 )

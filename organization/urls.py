@@ -6,6 +6,11 @@ app_name = "organization"
 
 urlpatterns = [
     path("employees/", directory_views.employee_list, name="employee_list"),
+    path(
+        "employees/department-assignments/",
+        directory_views.employee_bulk_department_assignment,
+        name="employee_bulk_department_assignment",
+    ),
     path("employees/<uuid:employee_id>/", directory_views.employee_detail, name="employee_detail"),
     path("employees/<uuid:employee_id>/edit/", directory_views.employee_edit, name="employee_edit"),
     path("organization/departments/", directory_views.department_list, name="department_list"),
@@ -16,10 +21,6 @@ urlpatterns = [
     path("organization/locations/add/", directory_views.location_create, name="location_create"),
     path("organization/locations/<uuid:instance_id>/edit/", directory_views.location_edit, name="location_edit"),
     path("organization/locations/<uuid:instance_id>/disable/", directory_views.location_disable, name="location_disable"),
-    path("organization/job-titles/", directory_views.job_title_list, name="job_title_list"),
-    path("organization/job-titles/add/", directory_views.job_title_create, name="job_title_create"),
-    path("organization/job-titles/<uuid:instance_id>/edit/", directory_views.job_title_edit, name="job_title_edit"),
-    path("organization/job-titles/<uuid:instance_id>/disable/", directory_views.job_title_disable, name="job_title_disable"),
     path(
         "employees/imports/",
         views.employee_import_list,

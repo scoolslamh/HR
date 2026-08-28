@@ -1,6 +1,7 @@
 {% extends "core/base.html" %}
 
 {% block page_actions %}
+  <div class="col-auto"><a class="btn btn-primary" href="{% url 'organization:employee_bulk_department_assignment' %}"><i data-lucide="network"></i> الإسناد الجماعي للأقسام</a></div>
   <div class="col-auto"><a class="btn btn-outline-primary" href="{% url 'organization:employee_import_list' %}"><i data-lucide="file-up"></i> استيراد الموظفين</a></div>
 {% endblock %}
 

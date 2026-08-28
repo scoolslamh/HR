@@ -52,18 +52,6 @@ NAVIGATION_GROUPS = (
                 ),
             },
             {
-                "name": "job_titles",
-                "url_name": "organization:job_title_list",
-                "label": "المسميات الوظيفية",
-                "icon": "briefcase-business",
-                "active_url_names": (
-                    "job_title_list",
-                    "job_title_create",
-                    "job_title_edit",
-                    "job_title_disable",
-                ),
-            },
-            {
                 "name": "employees",
                 "url_name": "organization:employee_list",
                 "label": "الموظفون",
@@ -101,12 +89,6 @@ NAVIGATION_GROUPS = (
                 "icon": "scroll-text",
             },
             {
-                "name": "schedules",
-                "url_name": "core:schedules",
-                "label": "المناوبات والتقويم",
-                "icon": "calendar-days",
-            },
-            {
                 "name": "imports",
                 "url_name": "attendance:import_list",
                 "label": "استيراد الحضور",
@@ -133,12 +115,6 @@ NAVIGATION_GROUPS = (
     {
         "label": "المخالفات والمعالجات",
         "items": (
-            {
-                "name": "violations",
-                "url_name": "core:violations",
-                "label": "المخالفات",
-                "icon": "triangle-alert",
-            },
             {
                 "name": "resolutions",
                 "url_name": "core:resolutions",
@@ -183,12 +159,6 @@ NAVIGATION_GROUPS = (
         "label": "إدارة النظام",
         "items": (
             {
-                "name": "audit-log",
-                "url_name": "core:audit-log",
-                "label": "سجل التدقيق",
-                "icon": "history",
-            },
-            {
                 "name": "settings",
                 "url_name": "core:settings",
                 "label": "إعدادات النظام",
@@ -207,18 +177,6 @@ PLACEHOLDER_PAGES = (
         "description": "عرض سياسات الدوام وإصداراتها وفترات نفاذها.",
     },
     {
-        "name": "schedules",
-        "path": "attendance/schedules/",
-        "title": "المناوبات والتقويم",
-        "description": "عرض المناوبات وجداول الدوام والتقويم الرسمي.",
-    },
-    {
-        "name": "violations",
-        "path": "violations/",
-        "title": "المخالفات",
-        "description": "متابعة مخالفات الحضور وحالاتها ونتائج احتسابها.",
-    },
-    {
         "name": "resolutions",
         "path": "violations/resolutions/",
         "title": "طلبات المعالجة",
@@ -229,12 +187,6 @@ PLACEHOLDER_PAGES = (
         "path": "approvals/",
         "title": "الاعتمادات",
         "description": "عرض الطلبات الواردة ومسارات الاعتماد والقرارات.",
-    },
-    {
-        "name": "audit-log",
-        "path": "audit-log/",
-        "title": "سجل التدقيق",
-        "description": "مراجعة العمليات الحساسة والقرارات المسجلة في النظام.",
     },
     {
         "name": "settings",

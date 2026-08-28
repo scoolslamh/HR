@@ -18,7 +18,7 @@ from ..models import (
     Location,
     UserDepartmentScope,
 )
-from ..selectors import employees_in_user_department_scope
+from ..selectors import department_ids_in_user_scope, employees_in_user_department_scope
 from .identity import (
     encrypt_sensitive_text,
     mask_mobile,
@@ -249,12 +249,13 @@ def _replace_assignment(
     manager: Employee | None,
     effective_date,
     actor,
+    reason="تحديث بيانات الموظف",
 ) -> EmploymentAssignment:
     if current and current.department_id == department.id:
         if current.manager_employee_id != (manager.id if manager else None):
             current.manager_employee = manager
             current.updated_by = actor
-            current.reason = "تحديث بيانات الموظف"
+            current.reason = reason
             current.save(
                 update_fields=(
                     "manager_employee",
@@ -269,7 +270,7 @@ def _replace_assignment(
         current.department = department
         current.manager_employee = manager
         current.updated_by = actor
-        current.reason = "تحديث بيانات الموظف"
+        current.reason = reason
         current.save(
             update_fields=(
                 "department",
@@ -294,10 +295,87 @@ def _replace_assignment(
         assignment_type=EmploymentAssignment.AssignmentType.PRIMARY,
         valid_from=effective_date,
         is_primary=True,
-        reason="تحديث بيانات الموظف",
+        reason=reason,
         created_by=actor,
         updated_by=actor,
     )
+
+
+@transaction.atomic
+def bulk_assign_employee_departments(
+    *,
+    actor,
+    assignments: list[tuple[Employee, Department]],
+    effective_date,
+    reason: str,
+) -> int:
+    """Replace primary department assignments as one audited transaction."""
+
+    reason = (reason or "").strip()
+    if len(reason) < 5:
+        raise ValueError("يجب كتابة سبب واضح لعملية الإسناد.")
+    if effective_date < timezone.localdate():
+        raise ValueError("لا يمكن أن يسبق تاريخ السريان تاريخ اليوم.")
+
+    allowed_levels = (
+        UserDepartmentScope.AccessLevel.MANAGE,
+        UserDepartmentScope.AccessLevel.APPROVE,
+    )
+    allowed_department_ids = department_ids_in_user_scope(
+        actor,
+        access_levels=None if actor.is_superuser else allowed_levels,
+    )
+    requested_employee_ids = [employee.id for employee, _ in assignments]
+    locked_employees = {
+        employee.id: employee
+        for employee in Employee.objects.select_for_update().filter(
+            id__in=requested_employee_ids
+        )
+    }
+    visible_employee_ids = set(
+        employees_in_user_department_scope(actor).filter(
+            id__in=requested_employee_ids
+        ).values_list("id", flat=True)
+    )
+    changed = 0
+    for requested_employee, department in assignments:
+        employee = locked_employees.get(requested_employee.id)
+        if employee is None or (
+            not actor.is_superuser and employee.id not in visible_employee_ids
+        ):
+            raise PermissionError("أحد الموظفين خارج نطاقك التنظيمي.")
+        if department.id not in allowed_department_ids:
+            raise PermissionError("القسم المحدد خارج نطاق صلاحيتك.")
+        if not department.is_active or department.archived_at is not None:
+            raise ValueError("لا يمكن الإسناد إلى قسم غير نشط.")
+
+        current = _active_assignment(employee, effective_date)
+        if current and current.department_id == department.id:
+            continue
+        previous_department_id = str(current.department_id) if current else None
+        assignment = _replace_assignment(
+            employee,
+            current,
+            department=department,
+            manager=current.manager_employee if current else None,
+            effective_date=effective_date,
+            actor=actor,
+            reason=reason,
+        )
+        _audit(
+            actor=actor,
+            action="employee.bulk_department_assign",
+            instance=employee,
+            before={"department_id": previous_department_id},
+            after={
+                "department_id": str(assignment.department_id),
+                "effective_date": effective_date.isoformat(),
+            },
+            department=department,
+            reason=reason,
+        )
+        changed += 1
+    return changed
 
 
 def _replace_location(

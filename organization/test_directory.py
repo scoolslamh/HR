@@ -2,7 +2,7 @@ from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from audit.models import AuditLog
@@ -17,6 +17,8 @@ from .models import (
     Location,
     UserDepartmentScope,
 )
+from .services import bulk_assign_employee_departments, encrypt_sensitive_text
+from .selectors import current_assignment_for
 
 
 class EmployeeDirectoryTests(TestCase):
@@ -155,6 +157,94 @@ class EmployeeDirectoryTests(TestCase):
 
         self.assertContains(response, self.employee_b.full_name_ar)
         self.assertNotContains(response, self.employee_a.full_name_ar)
+
+    def test_bulk_department_assignment_page_is_available_from_employee_list(self):
+        self.client.force_login(self.admin)
+        encrypted = encrypt_sensitive_text(
+            self.full_national_id,
+            context=f"employee-national-id:{self.employee_a.id}",
+        )
+        identity = self.employee_a.identity
+        identity.national_id_encrypted = encrypted.ciphertext
+        identity.encryption_key_version = encrypted.key_version
+        identity.save(
+            update_fields=("national_id_encrypted", "encryption_key_version")
+        )
+
+        employee_list = self.client.get(reverse("organization:employee_list"))
+        response = self.client.get(
+            reverse("organization:employee_bulk_department_assignment")
+        )
+
+        self.assertContains(employee_list, "الإسناد الجماعي للأقسام")
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, self.employee_a.full_name_ar)
+        self.assertContains(response, self.full_national_id)
+        self.assertNotContains(response, "الرقم الوظيفي")
+        self.assertContains(response, self.department_b.name_ar)
+
+    def test_bulk_assignment_masks_national_id_for_scoped_manager(self):
+        self.client.force_login(self.manager)
+
+        response = self.client.get(
+            reverse("organization:employee_bulk_department_assignment")
+        )
+
+        self.assertContains(response, "******6789")
+        self.assertNotContains(response, self.full_national_id)
+
+    def test_bulk_department_assignment_preserves_history_and_audits(self):
+        self.client.force_login(self.admin)
+        old_assignment = self.employee_a.employment_assignments.get(
+            valid_to__isnull=True
+        )
+
+        response = self.client.post(
+            reverse("organization:employee_bulk_department_assignment"),
+            {
+                "effective_date": self.today.isoformat(),
+                "reason": "نقل تنظيمي معتمد",
+                "selected_employees": [str(self.employee_a.id)],
+                f"department_{self.employee_a.id}": str(self.department_b.id),
+            },
+        )
+
+        self.assertRedirects(
+            response,
+            reverse("organization:employee_bulk_department_assignment"),
+        )
+        old_assignment.refresh_from_db()
+        self.assertEqual(old_assignment.valid_to, self.today)
+        current = current_assignment_for(self.employee_a)
+        self.assertEqual(current.department, self.department_b)
+        self.assertTrue(
+            AuditLog.objects.filter(
+                action="employee.bulk_department_assign",
+                object_id=self.employee_a.id,
+            ).exists()
+        )
+
+    def test_bulk_department_assignment_is_atomic_on_invalid_scope(self):
+        blocked_department = self.create_department("BLOCKED", "قسم غير نشط")
+        blocked_department.is_active = False
+        blocked_department.save(update_fields=("is_active", "updated_at"))
+        old_assignment = current_assignment_for(self.employee_a)
+
+        with self.assertRaises(ValueError):
+            bulk_assign_employee_departments(
+                actor=self.admin,
+                assignments=[
+                    (self.employee_a, self.department_b),
+                    (self.employee_b, blocked_department),
+                ],
+                effective_date=self.today,
+                reason="اختبار التراجع الكامل",
+            )
+
+        self.assertEqual(
+            current_assignment_for(self.employee_a).id,
+            old_assignment.id,
+        )
 
     def test_direct_employee_url_outside_scope_returns_404(self):
         self.client.force_login(self.manager)
@@ -410,25 +500,13 @@ class OrganizationReferenceCrudTests(TestCase):
         )
         self.assertTrue(AuditLog.objects.filter(action="location.disable").exists())
 
-    def test_reference_create_edit_and_job_title_disable(self):
-        create_response = self.client.post(
-            reverse("organization:job_title_create"),
-            {"code": "ANL", "name_ar": "محلل"},
-        )
-        self.assertRedirects(create_response, reverse("organization:job_title_list"))
-        job_title = JobTitle.objects.get(code="ANL")
-
-        edit_response = self.client.post(
-            reverse("organization:job_title_edit", args=(job_title.id,)),
-            {"code": "ANL", "name_ar": "محلل بيانات"},
-        )
-        self.assertEqual(edit_response.status_code, 302)
-        job_title.refresh_from_db()
-        self.assertEqual(job_title.name_ar, "محلل بيانات")
-
-        self.client.post(
-            reverse("organization:job_title_disable", args=(job_title.id,))
-        )
-        job_title.refresh_from_db()
-        self.assertFalse(job_title.is_active)
-        self.assertTrue(AuditLog.objects.filter(action="jobtitle.disable").exists())
+    def test_job_title_pages_are_not_routable(self):
+        for url_name in (
+            "job_title_list",
+            "job_title_create",
+            "job_title_edit",
+            "job_title_disable",
+        ):
+            with self.subTest(url_name=url_name):
+                with self.assertRaises(NoReverseMatch):
+                    reverse(f"organization:{url_name}")

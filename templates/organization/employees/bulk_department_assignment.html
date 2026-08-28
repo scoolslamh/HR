@@ -1,0 +1,49 @@
+{% extends "core/base.html" %}
+
+{% block content %}
+  {% include "organization/employee_import/_messages.html" %}
+  <ul class="nav nav-tabs mb-4">
+    <li class="nav-item"><a class="nav-link" href="{% url 'organization:employee_list' %}">قائمة الموظفين</a></li>
+    <li class="nav-item"><a class="nav-link active" aria-current="page" href="{% url 'organization:employee_bulk_department_assignment' %}">الإسناد الجماعي للأقسام</a></li>
+  </ul>
+
+  <section class="card mb-4">
+    <form method="get" class="card-body">
+      <div class="row g-3 align-items-end">
+        <div class="col-12 col-md-5"><label class="form-label" for="assignment-search">بحث</label><input class="form-control" id="assignment-search" name="search" value="{{ search }}" placeholder="الاسم أو الرقم الوظيفي"></div>
+        <div class="col-12 col-md-4"><label class="form-label" for="current-department">القسم الحالي</label><select class="form-select" id="current-department" name="department"><option value="">جميع الأقسام</option>{% for department in departments %}<option value="{{ department.id }}"{% if current_department == department.id|stringformat:'s' %} selected{% endif %}>{{ department.name_ar }}</option>{% endfor %}</select></div>
+        <div class="col-12 col-md-3 d-flex gap-2"><button class="btn btn-primary flex-fill" type="submit">تطبيق</button><a class="btn btn-outline-secondary" href="{% url 'organization:employee_bulk_department_assignment' %}">مسح</a></div>
+      </div>
+    </form>
+  </section>
+
+  <form method="post" id="bulk-department-form">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
+    <section class="card mb-4">
+      <div class="card-body">
+        <div class="row g-3 align-items-end">
+          <div class="col-12 col-md-4"><label class="form-label" for="common-department">تطبيق قسم على المحددين</label><select class="form-select" id="common-department"><option value="">اختر القسم</option>{% for department in departments %}<option value="{{ department.id }}">{{ department.name_ar }}</option>{% endfor %}</select></div>
+          <div class="col-auto"><button class="btn btn-outline-primary" id="apply-common-department" type="button">تطبيق</button></div>
+          <div class="col-12 col-md-3"><label class="form-label" for="{{ form.effective_date.id_for_label }}">{{ form.effective_date.label }}</label>{{ form.effective_date }}{% for error in form.effective_date.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}</div>
+          <div class="col-12"><label class="form-label" for="{{ form.reason.id_for_label }}">{{ form.reason.label }}</label>{{ form.reason }}{% for error in form.reason.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="table-responsive">
+        <table class="table table-vcenter card-table">
+          <thead><tr><th><input class="form-check-input" id="select-all-employees" type="checkbox" aria-label="تحديد جميع الموظفين الظاهرين"></th><th>الموظف</th><th>السجل المدني</th><th>القسم الحالي</th><th>القسم الجديد</th></tr></thead>
+          <tbody>{% for employee in employees %}<tr>
+            <td><input class="form-check-input employee-selector" type="checkbox" name="selected_employees" value="{{ employee.id }}" aria-label="تحديد {{ employee.full_name_ar }}"></td>
+            <th scope="row">{{ employee.full_name_ar }}</th><td><span dir="ltr">{{ employee.ui_national_id }}</span></td>
+            <td>{% if employee.ui_assignment %}{{ employee.ui_assignment.department.name_ar }}{% else %}—{% endif %}</td>
+            <td><select class="form-select employee-department" name="department_{{ employee.id }}"><option value="">اختر القسم</option>{% for department in departments %}<option value="{{ department.id }}"{% if employee.ui_assignment.department_id == department.id %} selected{% endif %}>{{ department.name_ar }}</option>{% endfor %}</select></td>
+          </tr>{% empty %}<tr><td colspan="5" class="text-center text-secondary py-5">لا يوجد موظفون ضمن النتائج الحالية.</td></tr>{% endfor %}</tbody>
+        </table>
+      </div>
+      <div class="card-footer d-flex justify-content-between align-items-center"><span class="text-secondary">سيتم حفظ الموظفين المحددين فقط، بحد أقصى 100 موظف في العملية.</span><button class="btn btn-primary" type="submit">مراجعة وحفظ التغييرات</button></div>
+    </section>
+  </form>
+{% endblock %}

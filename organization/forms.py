@@ -210,6 +210,30 @@ class EmployeeDirectoryFilterForm(forms.Form):
         self.fields["search"].widget.attrs["placeholder"] = "الاسم أو الرقم الوظيفي"
 
 
+class BulkDepartmentAssignmentForm(forms.Form):
+    effective_date = forms.DateField(
+        label="تاريخ سريان التغييرات",
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    reason = forms.CharField(
+        label="سبب الإسناد",
+        max_length=500,
+        min_length=5,
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["effective_date"].initial = timezone.localdate()
+        _style_fields(self)
+
+    def clean_effective_date(self):
+        effective_date = self.cleaned_data["effective_date"]
+        if effective_date < timezone.localdate():
+            raise forms.ValidationError("لا يمكن أن يسبق تاريخ السريان تاريخ اليوم.")
+        return effective_date
+
+
 class EmployeeEditForm(forms.ModelForm):
     mobile = forms.CharField(
         label="رقم الجوال",

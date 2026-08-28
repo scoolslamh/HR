@@ -4,7 +4,7 @@ from functools import wraps
 
 from django.contrib import messages
 from django.contrib.auth.views import redirect_to_login
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
@@ -14,6 +14,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from .access import user_can_manage_references, user_can_view_employee_directory
 from .forms import (
+    BulkDepartmentAssignmentForm,
     DepartmentForm,
     EmployeeDirectoryFilterForm,
     EmployeeEditForm,
@@ -27,7 +28,14 @@ from .selectors import (
     department_ids_in_user_scope,
     employee_directory_queryset,
 )
-from .services import disable_reference, save_reference, update_employee
+from .services import (
+    SecurityConfigurationError,
+    bulk_assign_employee_departments,
+    decrypt_sensitive_text,
+    disable_reference,
+    save_reference,
+    update_employee,
+)
 
 
 def _require_access(check):
@@ -64,6 +72,23 @@ def _current_date_filters(prefix: str = "") -> Q:
     return Q(**{f"{prefix}valid_from__lte": today}) & (
         Q(**{f"{prefix}valid_to__isnull": True}) | Q(**{f"{prefix}valid_to__gt": today})
     )
+
+
+def _assignment_national_id_display(employee: Employee, user) -> str:
+    try:
+        identity = employee.identity
+    except ObjectDoesNotExist:
+        return "غير متاح"
+    if not user.is_superuser:
+        return f"******{identity.national_id_last4}"
+    try:
+        return decrypt_sensitive_text(
+            bytes(identity.national_id_encrypted),
+            context=f"employee-national-id:{employee.id}",
+            key_version=identity.encryption_key_version,
+        )
+    except (ValueError, SecurityConfigurationError):
+        return "غير متاح"
 
 
 @employee_directory_required
@@ -113,6 +138,100 @@ def employee_list(request: HttpRequest) -> HttpResponse:
             "page_obj": page_obj,
             "filter_form": filter_form,
             "query_string": query_params.urlencode(),
+        },
+    )
+
+
+@employee_directory_required
+@require_http_methods(["GET", "POST"])
+def employee_bulk_department_assignment(request: HttpRequest) -> HttpResponse:
+    manageable_levels = (
+        UserDepartmentScope.AccessLevel.MANAGE,
+        UserDepartmentScope.AccessLevel.APPROVE,
+    )
+    department_ids = department_ids_in_user_scope(
+        request.user,
+        access_levels=None if request.user.is_superuser else manageable_levels,
+    )
+    departments = Department.objects.filter(
+        id__in=department_ids,
+        is_active=True,
+        archived_at__isnull=True,
+    ).order_by("name_ar")
+    department_map = {str(department.id): department for department in departments}
+    if not request.user.is_superuser and not department_ids:
+        raise PermissionDenied("لا تملك صلاحية إسناد الموظفين للأقسام.")
+
+    queryset = employee_directory_queryset(request.user).order_by("full_name_ar")
+    search = (request.GET.get("search") or "").strip()
+    current_department = (request.GET.get("department") or "").strip()
+    if search:
+        queryset = queryset.filter(
+            Q(full_name_ar__icontains=search) | Q(employee_number__icontains=search)
+        )
+    if current_department in department_map:
+        queryset = queryset.filter(
+            _current_date_filters("employment_assignments__"),
+            employment_assignments__is_primary=True,
+            employment_assignments__department_id=current_department,
+        )
+    employees = list(queryset.distinct()[:100])
+    for employee in employees:
+        employee.ui_assignment = current_assignment_for(employee)
+        employee.ui_national_id = _assignment_national_id_display(
+            employee, request.user
+        )
+
+    form = BulkDepartmentAssignmentForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        selected_ids = set(request.POST.getlist("selected_employees"))
+        scoped_employees = {
+            str(employee.id): employee
+            for employee in employee_directory_queryset(request.user).filter(
+                id__in=selected_ids
+            )
+        }
+        assignments = []
+        invalid = False
+        for employee_id in selected_ids:
+            employee = scoped_employees.get(employee_id)
+            department = department_map.get(
+                request.POST.get(f"department_{employee_id}", "")
+            )
+            if employee is None or department is None:
+                invalid = True
+                break
+            assignments.append((employee, department))
+        if not selected_ids:
+            form.add_error(None, "حدد موظفًا واحدًا على الأقل.")
+        elif invalid:
+            form.add_error(None, "تتضمن البيانات موظفًا أو قسمًا خارج النطاق المسموح.")
+        else:
+            try:
+                changed = bulk_assign_employee_departments(
+                    actor=request.user,
+                    assignments=assignments,
+                    effective_date=form.cleaned_data["effective_date"],
+                    reason=form.cleaned_data["reason"],
+                )
+            except (PermissionError, ValueError) as exc:
+                form.add_error(None, str(exc))
+            else:
+                messages.success(request, f"تم حفظ {changed} تغييرًا في إسنادات الأقسام.")
+                return redirect("organization:employee_bulk_department_assignment")
+
+    return render(
+        request,
+        "organization/employees/bulk_department_assignment.html",
+        {
+            "page_title": "الإسناد الجماعي للأقسام",
+            "page_description": "تغيير أقسام الموظفين مع حفظ تاريخ الإسنادات السابقة.",
+            "breadcrumb_items": _employee_breadcrumb("الإسناد الجماعي للأقسام"),
+            "employees": employees,
+            "departments": departments,
+            "form": form,
+            "search": search,
+            "current_department": current_department,
         },
     )
 

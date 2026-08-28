@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.contrib.auth import SESSION_KEY, get_user_model
 from django.test import RequestFactory, TestCase, override_settings
-from django.urls import reverse
+from django.urls import NoReverseMatch, reverse
 from django.utils import timezone
 
 from accounts.models import Permission, Role, RolePermission, UserRole
@@ -69,6 +69,12 @@ class ApplicationShellTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, page["title"])
                 self.assertContains(response, "هذه الصفحة جاهزة للمرحلة الوظيفية القادمة")
+
+    def test_removed_pages_are_not_routable(self):
+        for url_name in ("schedules", "violations", "audit-log"):
+            with self.subTest(url_name=url_name):
+                with self.assertRaises(NoReverseMatch):
+                    reverse(f"core:{url_name}")
 
     def test_forbidden_page_returns_403(self):
         request = RequestFactory().get("/forbidden/")
