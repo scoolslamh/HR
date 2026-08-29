@@ -1,6 +1,9 @@
 import time as time_module
 import tracemalloc
 from datetime import date, datetime, time, timedelta
+from io import BytesIO
+
+from openpyxl import load_workbook
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -605,6 +608,41 @@ class AttendanceCalculationTests(TestCase):
         self.assertEqual(category_response.status_code, 200)
         self.assertContains(category_response, self.employee.full_name_ar)
         self.assertContains(category_response, "مهمات العمل")
+
+    def test_report_builder_previews_and_exports_scoped_data(self):
+        absence = self._record(source_status="غياب")
+        calculate_records(
+            records=[absence], requested_by=self.user, import_batch=self.batch
+        )
+        self.client.force_login(self.user)
+        params = {
+            "report_type": "top_absence",
+            "limit": "10",
+            "output_format": "preview",
+        }
+
+        preview = self.client.get(reverse("attendance:report_builder"), params)
+        self.assertEqual(preview.status_code, 200)
+        self.assertContains(preview, self.employee.full_name_ar)
+        self.assertContains(preview, "أيام الغياب")
+
+        params["output_format"] = "xlsx"
+        exported = self.client.get(reverse("attendance:report_builder"), params)
+        self.assertEqual(exported.status_code, 200)
+        self.assertEqual(
+            exported["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        workbook = load_workbook(BytesIO(exported.content), read_only=True)
+        self.assertEqual(workbook.sheetnames, ["الملخص", "البيانات"])
+        self.assertEqual(workbook["البيانات"]["B2"].value, self.employee.full_name_ar)
+        workbook.close()
+
+        params["output_format"] = "pdf"
+        printable = self.client.get(reverse("attendance:report_builder"), params)
+        self.assertEqual(printable.status_code, 200)
+        self.assertContains(printable, "طباعة / حفظ PDF")
+        self.assertContains(printable, self.employee.full_name_ar)
 
     def test_employee_login_submit_and_department_head_approval(self):
         absence = self._record(source_status="غياب")

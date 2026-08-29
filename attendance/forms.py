@@ -4,6 +4,7 @@ from django import forms
 from django.conf import settings
 
 from organization.models import Department
+from attendance.services.report_export import REPORT_TYPES
 
 
 def _maximum_upload_bytes() -> int:
@@ -154,3 +155,51 @@ class AttendanceImportDeleteForm(forms.Form):
         if value != self.expected_name:
             raise forms.ValidationError("اسم التأكيد لا يطابق اسم الملف.")
         return value
+
+
+class ReportBuilderForm(forms.Form):
+    report_type = forms.ChoiceField(
+        label="نوع التقرير",
+        choices=tuple(REPORT_TYPES.items()),
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    department = forms.ModelChoiceField(
+        label="القسم",
+        queryset=Department.objects.none(),
+        required=False,
+        empty_label="جميع الأقسام المتاحة",
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    date_from = forms.DateField(
+        label="من تاريخ", required=False,
+        widget=forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+    )
+    date_to = forms.DateField(
+        label="إلى تاريخ", required=False,
+        widget=forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+    )
+    limit = forms.TypedChoiceField(
+        label="عدد النتائج",
+        choices=((10, "10"), (20, "20"), (50, "50"), (100, "100")),
+        coerce=int,
+        initial=10,
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    output_format = forms.ChoiceField(
+        label="طريقة الإخراج",
+        choices=(("preview", "معاينة"), ("xlsx", "Excel"), ("pdf", "PDF / طباعة")),
+        initial="preview",
+        widget=forms.RadioSelect,
+    )
+
+    def __init__(self, *args, departments=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["department"].queryset = (
+            departments if departments is not None else Department.objects.none()
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        if cleaned.get("date_from") and cleaned.get("date_to") and cleaned["date_from"] > cleaned["date_to"]:
+            self.add_error("date_to", "تاريخ النهاية يجب ألا يسبق تاريخ البداية.")
+        return cleaned

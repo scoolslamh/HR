@@ -12,6 +12,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 from django.utils import timezone
 
+from audit.models import AuditLog
 from organization.access import user_has_business_permission
 from organization.services.exceptions import SecurityConfigurationError
 from organization.services.identity import (
@@ -27,6 +28,7 @@ from .forms import (
     AttendanceImportDeleteForm,
     AttendanceImportMetadataForm,
     AttendanceImportUploadForm,
+    ReportBuilderForm,
     UnmatchedEmployeeResolutionForm,
 )
 from .models import ImportBatch, ImportError, ImportRow
@@ -41,6 +43,7 @@ from .services import (
     restore_attendance_import,
     update_attendance_import_metadata,
 )
+from .services.report_export import build_report, report_xlsx
 
 ATTENDANCE_IMPORT_PERMISSION = "attendance.import"
 ATTENDANCE_APPROVE_PERMISSION = "attendance.approve"
@@ -815,29 +818,17 @@ def report_overview(request: HttpRequest) -> HttpResponse:
         qs = qs.filter(attendance_date__gte=date_from)
     if date_to:
         qs = qs.filter(attendance_date__lte=date_to)
-
-    outside_values = {DailyAttendanceResult.LocationStatus.BOTH_OUTSIDE}
-    summary = qs.aggregate(
-        records=Count("id"),
-        employees=Count("employee", distinct=True),
-    )
+    summary = qs.aggregate(records=Count("id"), employees=Count("employee", distinct=True))
     summary["absent"] = qs.filter(REPORT_CATEGORY_FILTERS["absent"][1]).count()
-    summary["outside"] = qs.filter(location_status__in=outside_values).count()
+    summary["outside"] = qs.filter(
+        location_status=DailyAttendanceResult.LocationStatus.BOTH_OUTSIDE
+    ).count()
     for key in (
-        "annual-leave",
-        "emergency-leave",
-        "medical-leave",
-        "work-missions",
-        "delegation",
-        "training",
-        "emergency-permission",
-        "medical-permission",
+        "annual-leave", "emergency-leave", "medical-leave", "work-missions",
+        "delegation", "training", "emergency-permission", "medical-permission",
         "automatic-checkout",
     ):
-        summary[key.replace("-", "_")] = qs.filter(
-            REPORT_CATEGORY_FILTERS[key][1]
-        ).count()
-
+        summary[key.replace("-", "_")] = qs.filter(REPORT_CATEGORY_FILTERS[key][1]).count()
     latest_runs = CalculationRun.objects.select_related(
         "import_batch", "requested_by"
     ).filter(import_batch=attendance_period)[:8]
@@ -846,7 +837,7 @@ def report_overview(request: HttpRequest) -> HttpResponse:
         "attendance/reports/overview.html",
         {
             "page_title": "تقارير الحضور والانضباط",
-            "page_description": "ملخص مؤشرات الحضور والتأخر وتنبيهات اختلاف موقعي الحضور والانصراف.",
+            "page_description": "ملخص مؤشرات الحضور والتأخر وتنبيهات اختلاف مواقع التوقيع.",
             "breadcrumb_items": (
                 {"label": "الرئيسية", "url_name": "core:dashboard"},
                 {"label": "التقارير"},
@@ -858,6 +849,84 @@ def report_overview(request: HttpRequest) -> HttpResponse:
     )
 
 
+@attendance_view_required
+@require_GET
+def report_builder(request: HttpRequest) -> HttpResponse:
+    attendance_period = selected_attendance_period(request)
+    base_qs = _result_queryset_for_user(
+        request.user, attendance_period=attendance_period
+    )
+    departments = _department_choices(base_qs)
+    form = ReportBuilderForm(
+        request.GET or None,
+        departments=departments,
+        initial={"report_type": "summary", "limit": 10, "output_format": "preview"},
+    )
+    report = None
+    if form.is_valid():
+        queryset = base_qs
+        department = form.cleaned_data["department"]
+        if department:
+            queryset = _filter_by_department(queryset, department.id)
+        if form.cleaned_data["date_from"]:
+            queryset = queryset.filter(attendance_date__gte=form.cleaned_data["date_from"])
+        if form.cleaned_data["date_to"]:
+            queryset = queryset.filter(attendance_date__lte=form.cleaned_data["date_to"])
+        report = build_report(
+            queryset,
+            report_type=form.cleaned_data["report_type"],
+            limit=form.cleaned_data["limit"],
+        )
+        output_format = form.cleaned_data["output_format"]
+        if output_format == "xlsx":
+            AuditLog.objects.create(
+                actor_user=request.user,
+                actor_username_snapshot=request.user.username,
+                action="attendance.report.export",
+                module="attendance",
+                object_type="attendance_report",
+                object_repr_masked=report.title,
+                after_json={"format": "xlsx", "report_type": form.cleaned_data["report_type"]},
+                outcome=AuditLog.Outcome.SUCCESS,
+            )
+            response = HttpResponse(
+                report_xlsx(report),
+                content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+            response["Content-Disposition"] = 'attachment; filename="attendance-report.xlsx"'
+            return response
+        if output_format == "pdf":
+            AuditLog.objects.create(
+                actor_user=request.user,
+                actor_username_snapshot=request.user.username,
+                action="attendance.report.export",
+                module="attendance",
+                object_type="attendance_report",
+                object_repr_masked=report.title,
+                after_json={"format": "pdf_print", "report_type": form.cleaned_data["report_type"]},
+                outcome=AuditLog.Outcome.SUCCESS,
+            )
+            return render(
+                request,
+                "attendance/reports/print.html",
+                {"report": report, "attendance_period": attendance_period},
+            )
+    return render(
+        request,
+        "attendance/reports/builder.html",
+        {
+            "page_title": "منشئ تقارير الحضور",
+            "page_description": "اختر نوع التقرير ونطاقه ثم عاينه أو صدّره إلى Excel أو PDF.",
+            "breadcrumb_items": (
+                {"label": "الرئيسية", "url_name": "core:dashboard"},
+                {"label": "التقارير", "url_name": "attendance:report_overview"},
+                {"label": "منشئ التقارير"},
+            ),
+            "form": form,
+            "report": report,
+            "attendance_period": attendance_period,
+        },
+    )
 @attendance_view_required
 @require_GET
 def attendance_category_report(request: HttpRequest, category: str) -> HttpResponse:

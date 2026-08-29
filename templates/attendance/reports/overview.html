@@ -1,5 +1,5 @@
 {% extends "core/base.html" %}
-{% block page_actions %}<div class="col-auto ms-auto"><form method="post" action="{% url 'attendance:run_calculation' %}">{% csrf_token %}<button class="btn btn-primary">إعادة احتساب جميع السجلات</button></form></div>{% endblock %}
+{% block page_actions %}<div class="col-auto ms-auto d-flex gap-2"><a class="btn btn-outline-primary" href="{% url 'attendance:report_builder' %}">إنشاء وتصدير تقرير</a><form method="post" action="{% url 'attendance:run_calculation' %}">{% csrf_token %}<button class="btn btn-primary">إعادة احتساب جميع السجلات</button></form></div>{% endblock %}
 {% block content %}
 <div class="row row-cards mb-4">
   <div class="col-sm-6 col-xl-3"><a class="card card-sm text-decoration-none" href="{% url 'attendance:record_list' %}"><div class="card-body"><div class="text-secondary">السجلات اليومية</div><div class="h1 mb-0">{{ summary.records|default:0 }}</div></div></a></div>
