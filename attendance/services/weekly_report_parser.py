@@ -252,7 +252,8 @@ def _is_null(value: Any) -> bool:
 
 
 def parse_weekly_report(content: bytes) -> ParsedWeeklyReport:
-    workbook = load_workbook(io.BytesIO(content), data_only=True, read_only=False)
+    # Stream worksheet cells instead of materialising the complete workbook.
+    workbook = load_workbook(io.BytesIO(content), data_only=True, read_only=True)
     try:
         worksheet = workbook.active
         header_row, columns = _find_header(worksheet)

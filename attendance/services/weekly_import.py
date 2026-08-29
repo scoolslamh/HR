@@ -55,14 +55,6 @@ class ImportPreviewResult:
     batch: ImportBatch
 
 
-@dataclass(frozen=True, slots=True)
-class _PreparedPreviewRow:
-    parsed_row: ParsedDailyRow
-    national_id_hash: str | None
-    employee_id: uuid.UUID | None
-    fingerprint: str | None
-
-
 def _chunks(values, *, size: int):
     chunk = []
     for value in values:
@@ -84,7 +76,7 @@ def _identity_employee_map(national_id_hashes: set[str]) -> dict[str, uuid.UUID]
     return identities
 
 
-def _existing_fingerprints(queryset, field_name: str, fingerprints: set[str]) -> set[str]:
+def _existing_fingerprints(queryset, field_name: str, fingerprints) -> set[str]:
     existing: set[str] = set()
     for fingerprint_chunk in _chunks(fingerprints, size=_LOOKUP_CHUNK_SIZE):
         existing.update(
@@ -285,8 +277,7 @@ def preview_attendance_import(uploaded_file, *, uploaded_by) -> ImportBatch:
         }
     }
     identities = _identity_employee_map(set(national_id_hashes.values()))
-    prepared_rows: list[_PreparedPreviewRow] = []
-    fingerprints: set[str] = set()
+    fingerprints_by_row_number: dict[int, str] = {}
     for parsed_row in parsed.rows:
         national_hash = (
             national_id_hashes.get(parsed_row.national_id)
@@ -295,22 +286,14 @@ def preview_attendance_import(uploaded_file, *, uploaded_by) -> ImportBatch:
         )
         employee_id = identities.get(national_hash) if national_hash else None
         fingerprint = _record_fingerprint(employee_id=employee_id, row=parsed_row)
-        prepared_rows.append(
-            _PreparedPreviewRow(
-                parsed_row=parsed_row,
-                national_id_hash=national_hash,
-                employee_id=employee_id,
-                fingerprint=fingerprint,
-            )
-        )
         if fingerprint:
-            fingerprints.add(fingerprint)
+            fingerprints_by_row_number[parsed_row.row_number] = fingerprint
 
     existing_raw_fingerprints = _existing_fingerprints(
-        RawAttendanceRecord.objects.all(), "record_fingerprint", fingerprints
+        RawAttendanceRecord.objects.all(), "record_fingerprint", fingerprints_by_row_number.values()
     )
     existing_import_fingerprints = _existing_fingerprints(
-        ImportRow.objects.all(), "proposed_record_fingerprint", fingerprints
+        ImportRow.objects.all(), "proposed_record_fingerprint", fingerprints_by_row_number.values()
     )
 
     with transaction.atomic():
@@ -359,11 +342,14 @@ def preview_attendance_import(uploaded_file, *, uploaded_by) -> ImportBatch:
                 error_count += issue.severity == "error"
                 warning_count += issue.severity != "error"
 
-            for prepared_row in prepared_rows:
-                parsed_row = prepared_row.parsed_row
-                national_hash = prepared_row.national_id_hash
-                employee_id = prepared_row.employee_id
-                fingerprint = prepared_row.fingerprint
+            for parsed_row in parsed.rows:
+                national_hash = (
+                    national_id_hashes.get(parsed_row.national_id)
+                    if parsed_row.national_id is not None
+                    else None
+                )
+                employee_id = identities.get(national_hash) if national_hash else None
+                fingerprint = fingerprints_by_row_number.get(parsed_row.row_number)
 
                 match_status = ImportRow.MatchStatus.MATCHED if employee_id else ImportRow.MatchStatus.UNMATCHED
                 row_issues = list(parsed_row.issues)
@@ -760,20 +746,29 @@ def approve_attendance_import(batch: ImportBatch, *, approved_by) -> int:
                 code="overlapping_approved_period",
             )
 
-        rows = list(
-            ImportRow.objects.select_related("matched_employee")
-            .filter(batch=locked, validation_status__in=[ImportRow.ValidationStatus.VALID, ImportRow.ValidationStatus.WARNING], matched_employee__isnull=False, is_duplicate=False)
+        rows = (
+            ImportRow.objects.filter(batch=locked, validation_status__in=[ImportRow.ValidationStatus.VALID, ImportRow.ValidationStatus.WARNING], matched_employee__isnull=False, is_duplicate=False)
+            .only(
+                "id", "matched_employee_id", "national_id_hash", "attendance_date",
+                "source_check_in", "source_check_out", "source_check_in_location",
+                "source_check_out_location", "source_status", "source_scheduled_duration",
+                "source_actual_work_duration", "source_early_departure_duration",
+                "source_shortfall_duration", "source_early_arrival_duration",
+                "proposed_record_fingerprint", "location_match_status",
+            )
             .order_by("row_number")
+            .iterator(chunk_size=_WRITE_BATCH_SIZE)
         )
         now = timezone.now()
-        records = []
+        records: list[RawAttendanceRecord] = []
+        created_count = 0
         for row in rows:
             if not row.proposed_record_fingerprint or not row.attendance_date:
                 raise AttendanceImportServiceError("توجد صفوف غير مكتملة تمنع الاعتماد.", code="incomplete_staged_row")
             records.append(
                 RawAttendanceRecord(
                     import_row=row,
-                    employee=row.matched_employee,
+                    employee_id=row.matched_employee_id,
                     national_id_hash=row.national_id_hash or "",
                     attendance_date=row.attendance_date,
                     source_check_in_at=_combine_datetime(row.attendance_date, row.source_check_in),
@@ -792,8 +787,23 @@ def approve_attendance_import(batch: ImportBatch, *, approved_by) -> int:
                     matched_at=now,
                 )
             )
+            if len(records) >= _WRITE_BATCH_SIZE:
+                try:
+                    RawAttendanceRecord.objects.bulk_create(
+                        records, batch_size=_WRITE_BATCH_SIZE
+                    )
+                except IntegrityError as exc:
+                    raise AttendanceImportServiceError(
+                        "تعذر الاعتماد بسبب سجل حضور مكرر.",
+                        code="duplicate_on_approve",
+                    ) from exc
+                created_count += len(records)
+                records.clear()
         try:
-            RawAttendanceRecord.objects.bulk_create(records)
+            if records:
+                RawAttendanceRecord.objects.bulk_create(
+                    records, batch_size=_WRITE_BATCH_SIZE
+                )
         except IntegrityError as exc:
             raise AttendanceImportServiceError("تعذر الاعتماد بسبب سجل حضور مكرر.", code="duplicate_on_approve") from exc
 
@@ -806,16 +816,18 @@ def approve_attendance_import(batch: ImportBatch, *, approved_by) -> int:
         # approval. Importing here avoids a module-level circular dependency.
         from attendance.services.calculation import calculate_batch
 
-        if records:
+        created_count += len(records)
+        records.clear()
+        if created_count:
             calculate_batch(locked, requested_by=approved_by)
         _audit(
             actor=approved_by,
             action="attendance.import.approve",
             batch=locked,
             outcome=AuditLog.Outcome.SUCCESS,
-            after_json={"created_records": len(records)},
+            after_json={"created_records": created_count},
         )
-        return len(records)
+        return created_count
 
 
 def can_delete_attendance_import(batch: ImportBatch) -> bool:

@@ -323,6 +323,45 @@ class AttendanceWeeklyImportTests(TestCase):
         self.assertEqual(larger_batch.matched_row_count, 120)
         self.assertLessEqual(len(larger_queries), len(small_queries) + 8)
 
+    def test_large_15000_row_preview_preserves_results(self):
+        """Exercise the production-sized path without changing import rules."""
+        batch = preview_attendance_import(
+            self.upload(
+                workbook_with_daily_rows(15_000, start=date(2030, 1, 1)),
+                "large-15000.xlsx",
+            ),
+            uploaded_by=self.user,
+        )
+
+        self.assertEqual(batch.daily_record_count, 15_000)
+        self.assertEqual(batch.matched_row_count, 15_000)
+        self.assertEqual(batch.error_count, 0)
+        self.assertEqual(batch.rows.count(), 15_000)
+
+    def test_approval_bulk_creates_in_bounded_batches(self):
+        batch = preview_attendance_import(
+            self.upload(
+                workbook_with_daily_rows(1_201, start=date(2075, 1, 1)),
+                "approval-batches.xlsx",
+            ),
+            uploaded_by=self.user,
+        )
+        original_bulk_create = RawAttendanceRecord.objects.bulk_create
+        batch_sizes = []
+
+        def recording_bulk_create(records, **kwargs):
+            batch_sizes.append(len(records))
+            return original_bulk_create(records, **kwargs)
+
+        with patch(
+            "attendance.services.weekly_import.RawAttendanceRecord.objects.bulk_create",
+            side_effect=recording_bulk_create,
+        ), patch("attendance.services.calculation.calculate_batch"):
+            created = approve_attendance_import(batch, approved_by=self.user)
+
+        self.assertEqual(created, 1_201)
+        self.assertEqual(batch_sizes, [500, 500, 201])
+
     def test_unmatched_employee_can_be_ignored_then_batch_can_be_approved(self):
         batch = preview_attendance_import(
             self.upload(workbook_bytes(national_id="1099999999", second_day=False)),

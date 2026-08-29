@@ -198,6 +198,8 @@ def _unmatched_employee_groups(batch: ImportBatch) -> tuple[dict, ...]:
         )
         .order_by("row_number")
         .distinct()
+        .only("national_id_hash", "national_id_last4", "display_data_json")
+        .iterator(chunk_size=500)
     )
     grouped = {}
     for row in rows:
