@@ -17,7 +17,7 @@ def _date_label(value) -> str:
     return value.strftime("%Y/%m/%d")
 
 
-def dashboard_context_for_user(user, *, attendance_period=None) -> dict:
+def employees_for_dashboard_user(user):
     can_view_all = user.is_superuser or user_has_business_permission(
         user, "clarifications.view_all"
     )
@@ -32,10 +32,14 @@ def dashboard_context_for_user(user, *, attendance_period=None) -> dict:
                 employment_assignments__is_primary=True,
             )
         ).distinct()
-    employees = employees.filter(
+    return employees.filter(
         employment_status=Employee.EmploymentStatus.ACTIVE,
         archived_at__isnull=True,
     )
+
+
+def dashboard_context_for_user(user, *, attendance_period=None) -> dict:
+    employees = employees_for_dashboard_user(user)
     employee_ids = employees.values_list("id", flat=True)
     results = DailyAttendanceResult.objects.filter(
         is_current=True,

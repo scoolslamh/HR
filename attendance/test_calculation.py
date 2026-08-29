@@ -333,6 +333,41 @@ class AttendanceCalculationTests(TestCase):
         self.assertNotContains(response, "بيانات توضيحية")
         self.assertNotContains(response, "weekly.xlsx")
 
+    def test_department_head_work_mission_list_matches_dashboard_scope_when_snapshot_is_missing(self):
+        mission = self._record(source_status="مهمة عمل رسمية")
+        calculate_records(
+            records=[mission], requested_by=self.user, import_batch=self.batch
+        )
+        DailyAttendanceResult.objects.update(department=None)
+
+        head_user = get_user_model().objects.create_user(
+            username="mission-scope-head",
+            password="Strong-Test-Pass-2026",
+        )
+        head_employee = Employee.objects.create(
+            full_name_ar="رئيس قسم المهمات", user=head_user
+        )
+        self.department.department_head = head_employee
+        self.department.save(update_fields=("department_head", "updated_at"))
+        UserRole.objects.create(
+            user=head_user,
+            role=Role.objects.get(code="department_head"),
+            valid_from=timezone.now(),
+        )
+        self.client.force_login(head_user)
+
+        dashboard = self.client.get(reverse("core:dashboard"))
+        mission_stat = next(
+            item for item in dashboard.context["dashboard_stats"]
+            if item["title"] == "مهمات العمل"
+        )
+        mission_list = self.client.get(reverse("violations:work_mission_list"))
+
+        self.assertEqual(mission_stat["value"], 1)
+        self.assertEqual(mission_list.status_code, 200)
+        self.assertEqual(mission_list.context["mission_total"], 1)
+        self.assertContains(mission_list, self.employee.full_name_ar)
+
     def test_detects_different_check_in_and_check_out_locations_without_clarification(self):
         record = self._record(in_location="فرع آخر")
         calculate_records(records=[record], requested_by=self.user, import_batch=self.batch)

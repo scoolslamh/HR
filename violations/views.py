@@ -14,6 +14,7 @@ from django.views.decorators.http import require_GET, require_http_methods
 
 from attendance.models import DailyAttendanceResult
 from core.periods import selected_attendance_period
+from core.selectors import employees_for_dashboard_user
 from organization.access import user_has_business_permission
 from organization.models import Department
 from organization.selectors import current_assignment_for, current_primary_location_for
@@ -298,7 +299,9 @@ def work_mission_list(request: HttpRequest) -> HttpResponse:
 
     results = _work_mission_results(selected_attendance_period(request))
     if not can_view_all:
-        results = results.filter(department__in=departments)
+        results = results.filter(
+            employee_id__in=employees_for_dashboard_user(request.user).values("id")
+        )
     rows = (
         results.values(
             "employee_id",
