@@ -1,7 +1,11 @@
+import time as time_module
+import tracemalloc
 from datetime import date, datetime, time, timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 
@@ -147,6 +151,70 @@ class AttendanceCalculationTests(TestCase):
         self.assertEqual(result.late_minutes, 20)
         self.assertEqual(result.location_status, DailyAttendanceResult.LocationStatus.MATCHED)
         self.assertEqual(result.attendance_status, DailyAttendanceResult.AttendanceStatus.PRESENT)
+
+    def test_calculates_15000_records_in_bounded_batches(self):
+        row_count = 15_000
+        start = date(2030, 1, 1)
+        rows = []
+        records = []
+        for index in range(row_count):
+            attendance_day = start + timedelta(days=index)
+            row = ImportRow(
+                batch=self.batch,
+                row_number=index + 1,
+                raw_payload_encrypted=b"encrypted",
+                encryption_key_version="v1",
+                raw_payload_sha256=f"{index + 1:064x}",
+                normalized_payload_json={},
+                display_data_json={},
+                matched_employee=self.employee,
+                attendance_date=attendance_day,
+                match_status=ImportRow.MatchStatus.MATCHED,
+                validation_status=ImportRow.ValidationStatus.VALID,
+                location_match_status=ImportRow.LocationMatchStatus.UNKNOWN,
+            )
+            rows.append(row)
+        ImportRow.objects.bulk_create(rows, batch_size=500)
+        for index, row in enumerate(rows):
+            records.append(
+                RawAttendanceRecord(
+                    import_row=row,
+                    employee=self.employee,
+                    national_id_hash="c" * 64,
+                    attendance_date=row.attendance_date,
+                    source_status="غياب",
+                    record_fingerprint=f"{index + 100_000:064x}",
+                    location_match_status=ImportRow.LocationMatchStatus.UNKNOWN,
+                    matched_at=timezone.now(),
+                )
+            )
+        RawAttendanceRecord.objects.bulk_create(records, batch_size=500)
+        rows.clear()
+        records.clear()
+
+        tracemalloc.start()
+        started = time_module.perf_counter()
+        with CaptureQueriesContext(connection) as queries:
+            summary = calculate_records(
+                records=RawAttendanceRecord.objects.filter(import_row__batch=self.batch),
+                requested_by=self.user,
+                import_batch=self.batch,
+            )
+        elapsed = time_module.perf_counter() - started
+        _, peak_bytes = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+
+        self.assertEqual(summary.created, row_count)
+        self.assertEqual(DailyAttendanceResult.objects.count(), row_count)
+        self.assertEqual(ClarificationRequest.objects.count(), row_count)
+        print(
+            f"15k calculation: {len(queries)} queries, {elapsed:.2f}s, "
+            f"Python peak {peak_bytes / 1024 / 1024:.1f} MiB"
+        )
+        # SQLite splits bulk statements at its low bind-parameter limit;
+        # PostgreSQL uses substantially fewer statements for the same batches.
+        self.assertLess(len(queries), 1_500)
+        self.assertLess(peak_bytes, 160 * 1024 * 1024)
 
     def test_system_admin_can_manage_and_archive_batch_from_import_page(self):
         record = self._record()

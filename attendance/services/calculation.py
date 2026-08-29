@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Max, Min, Q
 from django.utils import timezone
 
 from attendance.models import (
@@ -133,6 +133,7 @@ def _build_result(
     record: RawAttendanceRecord,
     run: CalculationRun,
     version: int,
+    department_id=None,
 ) -> DailyAttendanceResult:
     scheduled = _minutes(record.source_scheduled_duration)
     worked = _worked_minutes(record)
@@ -155,13 +156,13 @@ def _build_result(
     )
 
     return DailyAttendanceResult(
-        source_record=record,
-        employee=record.employee,
+        source_record_id=record.id,
+        employee_id=record.employee_id,
         calculation_run=run,
         attendance_date=record.attendance_date,
         version=version,
         is_current=True,
-        department_id=_department_for(record),
+        department_id=department_id,
         primary_location=None,
         first_check_in_at=record.source_check_in_at,
         last_check_out_at=record.source_check_out_at,
@@ -188,7 +189,7 @@ def _build_result(
     )
 
 
-def calculate_records(
+def _legacy_calculate_records(
     *,
     records,
     requested_by=None,
@@ -324,10 +325,205 @@ def calculate_records(
             outcome=AuditLog.Outcome.SUCCESS,
         )
 
-    return CalculationSummary(
-        run=run,
-        created=len(results),
+    return CalculationSummary(run=run, created=len(results))
+
+
+_CALCULATION_BATCH_SIZE = 500
+_RECORD_FIELDS = (
+    "id", "employee_id", "attendance_date", "created_at", "source_check_in_at",
+    "source_check_out_at", "source_check_in_location", "source_check_out_location",
+    "source_status", "source_scheduled_duration", "source_actual_work_duration",
+    "source_early_departure_duration", "source_shortfall_duration",
+    "source_early_arrival_duration", "location_match_status",
+)
+
+
+def _record_score(record: RawAttendanceRecord) -> tuple[int, object]:
+    completeness = sum(
+        value is not None and value != ""
+        for value in (
+            record.source_check_in_at,
+            record.source_check_out_at,
+            record.source_check_in_location,
+            record.source_check_out_location,
+            record.source_actual_work_duration,
+        )
     )
+    return completeness, record.created_at
+
+
+def _ordered_unique_records(records):
+    if hasattr(records, "order_by"):
+        source = records.only(*_RECORD_FIELDS).order_by(
+            "employee_id", "attendance_date", "created_at", "id"
+        ).iterator(chunk_size=_CALCULATION_BATCH_SIZE)
+    else:
+        source = iter(sorted(
+            records,
+            key=lambda record: (
+                record.employee_id, record.attendance_date,
+                record.created_at, record.id,
+            ),
+        ))
+
+    current_key = None
+    selected = None
+    for record in source:
+        key = (record.employee_id, record.attendance_date)
+        if current_key is not None and key != current_key:
+            yield selected
+            selected = None
+        if selected is None or _record_score(record) > _record_score(selected):
+            selected = record
+        current_key = key
+    if selected is not None:
+        yield selected
+
+
+def _department_map(records) -> dict[tuple, object]:
+    employee_ids = {record.employee_id for record in records}
+    start = min(record.attendance_date for record in records)
+    end = max(record.attendance_date for record in records)
+    assignments = list(
+        EmploymentAssignment.objects.filter(
+            employee_id__in=employee_ids,
+            is_primary=True,
+            valid_from__lte=end,
+        )
+        .filter(Q(valid_to__isnull=True) | Q(valid_to__gt=start))
+        .only("employee_id", "department_id", "valid_from", "valid_to")
+        .order_by("employee_id", "-valid_from")
+    )
+    by_employee = {}
+    for assignment in assignments:
+        by_employee.setdefault(assignment.employee_id, []).append(assignment)
+    return {
+        (record.employee_id, record.attendance_date): next(
+            (
+                assignment.department_id
+                for assignment in by_employee.get(record.employee_id, ())
+                if assignment.valid_from <= record.attendance_date
+                and (assignment.valid_to is None or assignment.valid_to > record.attendance_date)
+            ),
+            None,
+        )
+        for record in records
+    }
+
+
+def _calculate_record_batch(records, *, run, now) -> int:
+    keys = {(record.employee_id, record.attendance_date) for record in records}
+    employee_ids = {key[0] for key in keys}
+    dates = [key[1] for key in keys]
+    current_results = list(
+        DailyAttendanceResult.objects.select_for_update()
+        .filter(
+            employee_id__in=employee_ids,
+            attendance_date__range=(min(dates), max(dates)),
+            is_current=True,
+        )
+        .only("id", "employee_id", "attendance_date", "version", "is_current", "superseded_at")
+    )
+    current_by_key = {
+        (result.employee_id, result.attendance_date): result
+        for result in current_results
+        if (result.employee_id, result.attendance_date) in keys
+    }
+    departments = _department_map(records)
+    results = []
+    superseded = []
+    for record in records:
+        key = (record.employee_id, record.attendance_date)
+        current = current_by_key.get(key)
+        version = 1
+        if current:
+            version = current.version + 1
+            current.is_current = False
+            current.superseded_at = now
+            superseded.append(current)
+        results.append(
+            _build_result(
+                record=record,
+                run=run,
+                version=version,
+                department_id=departments[key],
+            )
+        )
+    if superseded:
+        DailyAttendanceResult.objects.bulk_update(
+            superseded, ("is_current", "superseded_at"),
+            batch_size=_CALCULATION_BATCH_SIZE,
+        )
+    DailyAttendanceResult.objects.bulk_create(
+        results, batch_size=_CALCULATION_BATCH_SIZE
+    )
+    from violations.services import create_automatic_clarifications
+    create_automatic_clarifications(results)
+    return len(results)
+
+
+def calculate_records(
+    *, records, requested_by=None, import_batch=None, reason=""
+) -> CalculationSummary:
+    is_queryset = hasattr(records, "aggregate")
+    if is_queryset:
+        bounds = records.aggregate(start=Min("attendance_date"), end=Max("attendance_date"))
+        period_start, period_end = bounds["start"], bounds["end"]
+        employee_scope = records.values("employee_id")
+    else:
+        records = list(records)
+        if not records:
+            raise AttendanceCalculationError("لا توجد سجلات حضور خام للاحتساب.")
+        period_start = min(record.attendance_date for record in records)
+        period_end = max(record.attendance_date for record in records)
+        employee_scope = {record.employee_id for record in records}
+    if period_start is None or period_end is None:
+        raise AttendanceCalculationError("لا توجد سجلات حضور خام للاحتساب.")
+
+    with transaction.atomic():
+        has_current_results = DailyAttendanceResult.objects.filter(
+            employee_id__in=employee_scope,
+            attendance_date__range=(period_start, period_end),
+            is_current=True,
+        ).exists()
+        run = CalculationRun.objects.create(
+            run_type=(CalculationRun.RunType.RECALCULATION if has_current_results else CalculationRun.RunType.INITIAL),
+            import_batch=import_batch,
+            period_start=period_start,
+            period_end=period_end,
+            status=CalculationRun.Status.RUNNING,
+            requested_by=requested_by,
+            reason=reason,
+            started_at=timezone.now(),
+        )
+        created_count = 0
+        pending = []
+        now = timezone.now()
+        for record in _ordered_unique_records(records):
+            pending.append(record)
+            if len(pending) >= _CALCULATION_BATCH_SIZE:
+                created_count += _calculate_record_batch(pending, run=run, now=now)
+                pending.clear()
+        if pending:
+            created_count += _calculate_record_batch(pending, run=run, now=now)
+            pending.clear()
+
+        run.status = CalculationRun.Status.COMPLETED
+        run.result_count = created_count
+        run.finished_at = timezone.now()
+        run.save(update_fields=("status", "result_count", "finished_at"))
+        AuditLog.objects.create(
+            actor_user=requested_by if getattr(requested_by, "is_authenticated", False) else None,
+            actor_username_snapshot=getattr(requested_by, "username", None),
+            action="attendance.calculate",
+            module="attendance",
+            object_type="calculation_run",
+            object_id=run.id,
+            object_repr_masked=f"احتساب {period_start} إلى {period_end}",
+            after_json={"result_count": created_count, "rules_version": "v1"},
+            outcome=AuditLog.Outcome.SUCCESS,
+        )
+    return CalculationSummary(run=run, created=created_count)
 
 
 def calculate_batch(
@@ -338,11 +534,7 @@ def calculate_batch(
 ):
     if batch.archived_at:
         raise AttendanceCalculationError("لا يمكن احتساب ملف حضور مؤرشف.")
-    records = RawAttendanceRecord.objects.select_related(
-        "employee",
-        "primary_location",
-        "import_row",
-    ).filter(import_row__batch=batch)
+    records = RawAttendanceRecord.objects.filter(import_row__batch=batch)
 
     return calculate_records(
         records=records,
@@ -353,11 +545,9 @@ def calculate_batch(
 
 
 def calculate_all(*, requested_by=None):
-    records = RawAttendanceRecord.objects.select_related(
-        "employee",
-        "primary_location",
-        "import_row",
-    ).filter(import_row__batch__archived_at__isnull=True)
+    records = RawAttendanceRecord.objects.filter(
+        import_row__batch__archived_at__isnull=True
+    )
 
     return calculate_records(
         records=records,
