@@ -170,6 +170,88 @@ class UserAccessManagementTests(TestCase):
             ).exists()
         )
 
+    def test_general_manager_access_level_is_saved_when_changed(self):
+        general_manager_role = Role.objects.get(code="general_manager")
+        create_response = self.client.post(
+            reverse("accounts:user_create"),
+            {
+                "username": "general-manager-access",
+                "email": "manager@example.com",
+                "is_active": "on",
+                "roles": [str(general_manager_role.id)],
+                "departments": [str(self.department_a.id)],
+                "access_level": UserDepartmentScope.AccessLevel.VIEW,
+                "include_descendants": "on",
+                "password1": "Strong-Test-Pass-2026",
+                "password2": "Strong-Test-Pass-2026",
+            },
+        )
+        self.assertRedirects(create_response, reverse("accounts:user_list"))
+        user = get_user_model().objects.get(username="general-manager-access")
+
+        update_response = self.client.post(
+            reverse("accounts:user_edit", args=(user.id,)),
+            {
+                "username": user.username,
+                "email": user.email,
+                "is_active": "on",
+                "roles": [str(general_manager_role.id)],
+                "departments": [str(self.department_a.id)],
+                "access_level": UserDepartmentScope.AccessLevel.APPROVE,
+                "include_descendants": "on",
+                "password1": "",
+                "password2": "",
+            },
+        )
+
+        self.assertRedirects(update_response, reverse("accounts:user_list"))
+        scope = UserDepartmentScope.objects.get(user=user, valid_to__isnull=True)
+        self.assertEqual(scope.access_level, UserDepartmentScope.AccessLevel.APPROVE)
+        edit_response = self.client.get(reverse("accounts:user_edit", args=(user.id,)))
+        self.assertEqual(
+            edit_response.context["form"].fields["access_level"].initial,
+            UserDepartmentScope.AccessLevel.APPROVE,
+        )
+
+    def test_general_manager_without_selected_departments_saves_global_access_level(self):
+        general_manager_role = Role.objects.get(code="general_manager")
+
+        response = self.client.post(
+            reverse("accounts:user_create"),
+            {
+                "username": "global-general-manager",
+                "email": "global-manager@example.com",
+                "is_active": "on",
+                "roles": [str(general_manager_role.id)],
+                "departments": [],
+                "access_level": UserDepartmentScope.AccessLevel.MANAGE,
+                "include_descendants": "",
+                "password1": "Strong-Test-Pass-2026",
+                "password2": "Strong-Test-Pass-2026",
+            },
+        )
+
+        self.assertRedirects(response, reverse("accounts:user_list"))
+        user = get_user_model().objects.get(username="global-general-manager")
+        scopes = UserDepartmentScope.objects.filter(
+            user=user, valid_to__isnull=True
+        )
+        self.assertSetEqual(
+            set(scopes.values_list("department_id", flat=True)),
+            {self.department_a.id, self.department_b.id},
+        )
+        self.assertFalse(
+            scopes.exclude(
+                access_level=UserDepartmentScope.AccessLevel.MANAGE,
+                include_descendants=True,
+            ).exists()
+        )
+        edit_response = self.client.get(reverse("accounts:user_edit", args=(user.id,)))
+        self.assertEqual(
+            edit_response.context["form"].fields["access_level"].initial,
+            UserDepartmentScope.AccessLevel.MANAGE,
+        )
+
     def test_role_permission_checkboxes_add_once_and_remove_when_unchecked(self):
         permission = Permission.objects.get(code="attendance.calculate")
         payload = {

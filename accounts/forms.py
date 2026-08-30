@@ -147,7 +147,12 @@ class UserAccessForm(forms.ModelForm):
         widget=forms.SelectMultiple(attrs={"size": 8}),
     )
     access_level = forms.ChoiceField(
-        label="مستوى الوصول", choices=UserDepartmentScope.AccessLevel.choices
+        label="مستوى الوصول",
+        choices=UserDepartmentScope.AccessLevel.choices,
+        help_text=(
+            "يُطبق على نطاق الأقسام المحدد. للمدير العام، عند ترك الأقسام فارغة "
+            "يُطبق تلقائيًا على كامل الهيكل التنظيمي."
+        ),
     )
     include_descendants = forms.BooleanField(
         label="يشمل الأقسام الفرعية", required=False
@@ -207,6 +212,25 @@ class UserAccessForm(forms.ModelForm):
             self.add_error("password1", "كلمة المرور مطلوبة للحساب الجديد.")
         if password1 != password2:
             self.add_error("password2", "كلمتا المرور غير متطابقتين.")
+        roles = cleaned.get("roles")
+        departments = cleaned.get("departments")
+        is_general_manager = roles is not None and roles.filter(
+            code="general_manager"
+        ).exists()
+        if is_general_manager and departments is not None and not departments.exists():
+            root_departments = Department.objects.filter(
+                parent__isnull=True,
+                is_active=True,
+                archived_at__isnull=True,
+            ).order_by("name_ar")
+            if root_departments.exists():
+                cleaned["departments"] = root_departments
+                cleaned["include_descendants"] = True
+            else:
+                self.add_error(
+                    "departments",
+                    "لا يوجد قسم جذري نشط لتطبيق مستوى وصول المدير العام.",
+                )
         return cleaned
 
 
