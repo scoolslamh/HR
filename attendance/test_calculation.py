@@ -989,6 +989,45 @@ class AttendanceCalculationTests(TestCase):
         self.assertEqual(executive_missions.status_code, 200)
         self.assertContains(executive_missions, "موظف الاختبار")
 
+    def test_department_head_sees_current_assignment_clarifications_without_snapshot(self):
+        absence = self._record(source_status="غياب")
+        calculate_records(
+            records=[absence], requested_by=self.user, import_batch=self.batch
+        )
+        clarification = ClarificationRequest.objects.get()
+        DailyAttendanceResult.objects.update(department=None)
+        ClarificationRequest.objects.update(department=None)
+        head_user = get_user_model().objects.create_user(
+            username="assignment-based-head",
+            password="Strong-Test-Pass-2026",
+        )
+        head_employee = Employee.objects.create(
+            full_name_ar="رئيس القسم حسب الإسناد",
+            user=head_user,
+        )
+        EmploymentAssignment.objects.create(
+            employee=head_employee,
+            department=self.department,
+            valid_from=date(2026, 1, 1),
+            is_primary=True,
+        )
+        UserRole.objects.create(
+            user=head_user,
+            role=Role.objects.get(code="department_head"),
+            valid_from=timezone.now(),
+        )
+        self.client.force_login(head_user)
+
+        dashboard = self.client.get(reverse("violations:manager_dashboard"))
+        review = self.client.get(
+            reverse("violations:manager_review", args=(clarification.id,))
+        )
+
+        self.assertEqual(dashboard.status_code, 200)
+        self.assertEqual(dashboard.context["summary"]["total"], 1)
+        self.assertContains(dashboard, self.employee.full_name_ar)
+        self.assertEqual(review.status_code, 200)
+
     def test_reviewing_user_delete_is_blocked_with_safe_message(self):
         absence = self._record(source_status="غياب")
         calculate_records(records=[absence], requested_by=self.user, import_batch=self.batch)

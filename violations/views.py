@@ -11,6 +11,7 @@ from django.core.paginator import Paginator
 from django.http import FileResponse, Http404, HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods
+from django.utils import timezone
 
 from attendance.models import DailyAttendanceResult
 from attendance.selectors import exclude_weekly_holidays
@@ -60,7 +61,39 @@ def _head_departments(user):
         employee = user.employee
     except Exception:
         return Department.objects.none()
-    return Department.objects.filter(department_head=employee, is_active=True)
+    today = timezone.localdate()
+    return Department.objects.filter(
+        Q(department_head=employee)
+        | Q(
+            employment_assignments__employee=employee,
+            employment_assignments__is_primary=True,
+            employment_assignments__valid_from__lte=today,
+        )
+        & (
+            Q(employment_assignments__valid_to__isnull=True)
+            | Q(employment_assignments__valid_to__gt=today)
+        ),
+        is_active=True,
+        archived_at__isnull=True,
+    ).distinct()
+
+
+def _clarifications_in_departments(queryset, departments):
+    department_ids = departments.values_list("id", flat=True)
+    today = timezone.localdate()
+    return queryset.filter(
+        Q(department_id__in=department_ids)
+        | (
+            Q(department__isnull=True)
+            & Q(employee__employment_assignments__department_id__in=department_ids)
+            & Q(employee__employment_assignments__is_primary=True)
+            & Q(employee__employment_assignments__valid_from__lte=today)
+            & (
+                Q(employee__employment_assignments__valid_to__isnull=True)
+                | Q(employee__employment_assignments__valid_to__gt=today)
+            )
+        )
+    ).distinct()
 
 
 def _can_view_all(user) -> bool:
@@ -196,7 +229,7 @@ def manager_dashboard(request: HttpRequest) -> HttpResponse:
     attendance_period = selected_attendance_period(request)
     items = _active_clarifications(attendance_period).select_related("employee", "department", "attendance_result")
     if not request.user.is_superuser:
-        items = items.filter(department__in=departments)
+        items = _clarifications_in_departments(items, departments)
     summary = items.aggregate(
         total=Count("id"),
         open=Count("id", filter=~Q(status__in=CLOSED_STATUSES)),
@@ -222,7 +255,10 @@ def manager_review(request: HttpRequest, clarification_id) -> HttpResponse:
     )
     allowed = request.user.is_superuser or (
         user_has_business_permission(request.user, "clarifications.approve_department")
-        and clarification.department_id in set(_head_departments(request.user).values_list("id", flat=True))
+        and _clarifications_in_departments(
+            ClarificationRequest.objects.filter(pk=clarification.pk),
+            _head_departments(request.user),
+        ).exists()
     )
     if not allowed:
         return render(request, "core/errors/403.html", status=403)
