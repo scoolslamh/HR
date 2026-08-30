@@ -59,7 +59,11 @@ def active_department_scopes(user, *, access_levels=None, at=None):
 def user_can_view_employee_directory(user) -> bool:
     if not user.is_authenticated or not user.is_active:
         return False
-    return user.is_superuser or active_department_scopes(user).exists()
+    return (
+        user.is_superuser
+        or user_has_business_permission(user, "employees.view_department")
+        or active_department_scopes(user).exists()
+    )
 
 
 def user_can_manage_references(user) -> bool:

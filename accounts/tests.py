@@ -238,6 +238,10 @@ class UserAccessManagementTests(TestCase):
         self.client.force_login(user)
         self.assertEqual(self.client.get(reverse("accounts:user_list")).status_code, 200)
         self.assertEqual(self.client.get(reverse("accounts:user_create")).status_code, 200)
+        employee_list = self.client.get(reverse("organization:employee_list"))
+        self.assertEqual(employee_list.status_code, 200)
+        self.assertContains(employee_list, self.employee_a.full_name_ar)
+        self.assertContains(employee_list, self.employee_b.full_name_ar)
 
     def test_user_can_change_own_password_and_keep_session(self):
         user = get_user_model().objects.create_user(
