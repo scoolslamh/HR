@@ -170,7 +170,7 @@ class UserAccessManagementTests(TestCase):
             ).exists()
         )
 
-    def test_general_manager_access_level_is_saved_when_changed(self):
+    def test_general_manager_ignores_department_scope_fields(self):
         general_manager_role = Role.objects.get(code="general_manager")
         create_response = self.client.post(
             reverse("accounts:user_create"),
@@ -205,15 +205,14 @@ class UserAccessManagementTests(TestCase):
         )
 
         self.assertRedirects(update_response, reverse("accounts:user_list"))
-        scope = UserDepartmentScope.objects.get(user=user, valid_to__isnull=True)
-        self.assertEqual(scope.access_level, UserDepartmentScope.AccessLevel.APPROVE)
-        edit_response = self.client.get(reverse("accounts:user_edit", args=(user.id,)))
-        self.assertEqual(
-            edit_response.context["form"].fields["access_level"].initial,
-            UserDepartmentScope.AccessLevel.APPROVE,
+        self.assertFalse(
+            UserDepartmentScope.objects.filter(user=user, valid_to__isnull=True).exists()
         )
+        self.assertTrue(user_has_business_permission(user, "attendance.reports"))
+        self.assertTrue(user_has_business_permission(user, "attendance.import"))
+        self.assertTrue(user_has_business_permission(user, "accounts.manage_users"))
 
-    def test_general_manager_without_selected_departments_saves_global_access_level(self):
+    def test_general_manager_without_departments_gets_global_access(self):
         general_manager_role = Role.objects.get(code="general_manager")
 
         response = self.client.post(
@@ -233,24 +232,57 @@ class UserAccessManagementTests(TestCase):
 
         self.assertRedirects(response, reverse("accounts:user_list"))
         user = get_user_model().objects.get(username="global-general-manager")
-        scopes = UserDepartmentScope.objects.filter(
-            user=user, valid_to__isnull=True
-        )
-        self.assertSetEqual(
-            set(scopes.values_list("department_id", flat=True)),
-            {self.department_a.id, self.department_b.id},
-        )
         self.assertFalse(
-            scopes.exclude(
-                access_level=UserDepartmentScope.AccessLevel.MANAGE,
-                include_descendants=True,
+            UserDepartmentScope.objects.filter(user=user, valid_to__isnull=True).exists()
+        )
+        self.client.force_login(user)
+        self.assertEqual(self.client.get(reverse("accounts:user_list")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("accounts:user_create")).status_code, 200)
+
+    def test_user_can_change_own_password_and_keep_session(self):
+        user = get_user_model().objects.create_user(
+            username="password-owner", password="Old-Strong-Pass-2026"
+        )
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("accounts:password_change"),
+            {
+                "old_password": "Old-Strong-Pass-2026",
+                "new_password1": "New-Strong-Pass-2026!",
+                "new_password2": "New-Strong-Pass-2026!",
+            },
+        )
+
+        self.assertRedirects(response, reverse("accounts:password_change"))
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("New-Strong-Pass-2026!"))
+        self.assertIsNotNone(user.password_changed_at)
+        self.assertEqual(str(self.client.session["_auth_user_id"]), str(user.id))
+        self.assertTrue(
+            AuditLog.objects.filter(
+                action="user.password_change", actor_user=user
             ).exists()
         )
-        edit_response = self.client.get(reverse("accounts:user_edit", args=(user.id,)))
-        self.assertEqual(
-            edit_response.context["form"].fields["access_level"].initial,
-            UserDepartmentScope.AccessLevel.MANAGE,
+
+    def test_automatic_employee_login_accounts_are_hidden_from_user_list(self):
+        automatic_user = get_user_model().objects.create_user(
+            username=f"employee-{self.employee_a.id}",
+            password="Temporary-Pass-2026",
         )
+        automatic_user.set_unusable_password()
+        automatic_user.save(update_fields=("password",))
+        self.employee_a.user = automatic_user
+        self.employee_a.save(update_fields=("user", "updated_at"))
+        manual_user = get_user_model().objects.create_user(
+            username="manually-added-user", password="Strong-Test-Pass-2026"
+        )
+
+        response = self.client.get(reverse("accounts:user_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, automatic_user.username)
+        self.assertContains(response, manual_user.username)
 
     def test_role_permission_checkboxes_add_once_and_remove_when_unchecked(self):
         permission = Permission.objects.get(code="attendance.calculate")

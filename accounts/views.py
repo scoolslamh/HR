@@ -3,14 +3,16 @@ from __future__ import annotations
 from functools import wraps
 
 from django.contrib import messages
-from django.contrib.auth import login
+from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.views import redirect_to_login
 from django.core.paginator import Paginator
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
+from django.db.models import Q
 from django.http import HttpRequest, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods
+from django.utils import timezone
 
 from audit.models import AuditLog
 from organization.access import user_has_business_permission
@@ -18,7 +20,7 @@ from organization.models import EmployeeIdentity
 from organization.services.exceptions import SecurityConfigurationError
 from organization.services.identity import national_id_digest
 
-from .forms import NationalIdLoginForm, RoleAccessForm, UserAccessForm
+from .forms import ArabicPasswordChangeForm, NationalIdLoginForm, RoleAccessForm, UserAccessForm
 from .models import Role, User
 from .services import (
     delete_role_permanently,
@@ -103,7 +105,10 @@ def system_admin_required(view_func):
     def wrapped(request: HttpRequest, *args, **kwargs):
         if not request.user.is_authenticated:
             return redirect_to_login(request.get_full_path())
-        if not request.user.is_active or not request.user.is_superuser:
+        if not request.user.is_active or not (
+            request.user.is_superuser
+            or user_has_business_permission(request.user, "accounts.manage_users")
+        ):
             return render(request, "core/errors/403.html", status=403)
         return view_func(request, *args, **kwargs)
 
@@ -133,12 +138,51 @@ def _breadcrumbs(label):
     )
 
 
+@require_http_methods(["GET", "POST"])
+def password_change(request: HttpRequest) -> HttpResponse:
+    if not request.user.is_authenticated:
+        return redirect_to_login(request.get_full_path())
+    form = ArabicPasswordChangeForm(request.user, request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        user = form.save()
+        user.password_changed_at = timezone.now()
+        user.must_change_password = False
+        user.save(update_fields=("password_changed_at", "must_change_password", "updated_at"))
+        update_session_auth_hash(request, user)
+        AuditLog.objects.create(
+            actor_user=user,
+            actor_username_snapshot=user.username,
+            action="user.password_change",
+            module="accounts",
+            object_type="User",
+            object_id=user.id,
+            object_repr_masked=user.username,
+            outcome=AuditLog.Outcome.SUCCESS,
+        )
+        messages.success(request, "تم تغيير كلمة المرور بنجاح.")
+        return redirect("accounts:password_change")
+    return render(
+        request,
+        "accounts/password_change.html",
+        {
+            "page_title": "تغيير كلمة المرور",
+            "page_description": "حدّث كلمة مرور حسابك مع إبقاء جلستك الحالية نشطة.",
+            "breadcrumb_items": ({"label": "تغيير كلمة المرور"},),
+            "form": form,
+        },
+    )
+
+
 @general_manager_required
 @require_GET
 def user_list(request: HttpRequest) -> HttpResponse:
-    users = User.objects.select_related("employee").prefetch_related(
+    users = User.objects.filter(
+        ~Q(username__startswith="employee-")
+        | Q(is_superuser=True)
+        | Q(role_assignments__is_active=True, role_assignments__valid_to__isnull=True)
+    ).select_related("employee").prefetch_related(
         "role_assignments__role", "department_scopes__department"
-    )
+    ).distinct()
     search = (request.GET.get("search") or "").strip()
     if search:
         users = users.filter(username__icontains=search)
@@ -163,7 +207,8 @@ def user_list(request: HttpRequest) -> HttpResponse:
             "breadcrumb_items": _breadcrumbs("القائمة"),
             "page_obj": page_obj,
             "search": search,
-            "can_edit_users": request.user.is_superuser,
+            "can_edit_users": request.user.is_superuser
+            or user_has_business_permission(request.user, "accounts.manage_users"),
         },
     )
 

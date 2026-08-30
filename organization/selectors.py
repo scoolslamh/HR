@@ -4,7 +4,7 @@ from django.db import models
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from .access import active_department_scopes
+from .access import active_department_scopes, user_has_active_role
 from .models import Department, Employee, UserDepartmentScope
 
 
@@ -29,7 +29,7 @@ def employees_in_user_department_scope(user, *, at=None) -> QuerySet[Employee]:
 
     if not user.is_authenticated or not user.is_active:
         return Employee.objects.none()
-    if user.is_superuser:
+    if user.is_superuser or user_has_active_role(user, "general_manager", at=at):
         return Employee.objects.all()
 
     at = at or timezone.now()
@@ -65,7 +65,7 @@ def employees_in_user_department_scope(user, *, at=None) -> QuerySet[Employee]:
 def department_ids_in_user_scope(user, *, access_levels=None, at=None) -> set:
     if not user.is_authenticated or not user.is_active:
         return set()
-    if user.is_superuser:
+    if user.is_superuser or user_has_active_role(user, "general_manager", at=at):
         return set(Department.objects.values_list("id", flat=True))
 
     scopes = active_department_scopes(

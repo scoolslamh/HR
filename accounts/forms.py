@@ -3,6 +3,7 @@ from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.forms import (
     AuthenticationForm,
     BaseUserCreationForm,
+    PasswordChangeForm,
     ReadOnlyPasswordHashField,
 )
 from django.core.exceptions import ValidationError
@@ -105,6 +106,22 @@ class NationalIdLoginForm(forms.Form):
             raise ValidationError(str(exc)) from exc
 
 
+class ArabicPasswordChangeForm(PasswordChangeForm):
+    error_messages = {
+        **PasswordChangeForm.error_messages,
+        "password_incorrect": "كلمة المرور الحالية غير صحيحة.",
+        "password_mismatch": "كلمتا المرور الجديدتان غير متطابقتين.",
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["old_password"].label = "كلمة المرور الحالية"
+        self.fields["new_password1"].label = "كلمة المرور الجديدة"
+        self.fields["new_password2"].label = "تأكيد كلمة المرور الجديدة"
+        for field in self.fields.values():
+            field.widget.attrs.update({"class": "form-control"})
+
+
 class UserCreationAdminForm(BaseUserCreationForm):
     class Meta:
         model = User
@@ -184,6 +201,9 @@ class UserAccessForm(forms.ModelForm):
         self.fields["roles"].queryset = Role.objects.filter(is_active=True).order_by(
             "name_ar"
         )
+        general_manager = self.fields["roles"].queryset.filter(code="general_manager").first()
+        if general_manager:
+            self.fields["roles"].widget.attrs["data-general-manager-role-id"] = str(general_manager.id)
         self.fields["departments"].queryset = Department.objects.filter(
             is_active=True, archived_at__isnull=True
         ).order_by("name_ar")
@@ -213,24 +233,13 @@ class UserAccessForm(forms.ModelForm):
         if password1 != password2:
             self.add_error("password2", "كلمتا المرور غير متطابقتين.")
         roles = cleaned.get("roles")
-        departments = cleaned.get("departments")
         is_general_manager = roles is not None and roles.filter(
             code="general_manager"
         ).exists()
-        if is_general_manager and departments is not None and not departments.exists():
-            root_departments = Department.objects.filter(
-                parent__isnull=True,
-                is_active=True,
-                archived_at__isnull=True,
-            ).order_by("name_ar")
-            if root_departments.exists():
-                cleaned["departments"] = root_departments
-                cleaned["include_descendants"] = True
-            else:
-                self.add_error(
-                    "departments",
-                    "لا يوجد قسم جذري نشط لتطبيق مستوى وصول المدير العام.",
-                )
+        if is_general_manager:
+            cleaned["departments"] = Department.objects.none()
+            cleaned["access_level"] = UserDepartmentScope.AccessLevel.VIEW
+            cleaned["include_descendants"] = False
         return cleaned
 
 

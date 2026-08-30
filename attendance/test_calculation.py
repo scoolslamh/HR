@@ -785,6 +785,40 @@ class AttendanceCalculationTests(TestCase):
         self.assertIn("أكثر 10 موظفين غيابًا", workbook.sheetnames)
         workbook.close()
 
+    def test_general_manager_without_department_scopes_can_view_and_export_reports(self):
+        record = self._record(source_status="غياب")
+        calculate_records(
+            records=[record], requested_by=self.user, import_batch=self.batch
+        )
+        manager = get_user_model().objects.create_user(
+            username="reports-general-manager",
+            password="Strong-Test-Pass-2026",
+        )
+        UserRole.objects.create(
+            user=manager,
+            role=Role.objects.get(code="general_manager"),
+        )
+        self.assertFalse(manager.department_scopes.exists())
+        self.client.force_login(manager)
+        params = {
+            "report_type": "comprehensive",
+            "limit": "10",
+            "output_format": "preview",
+        }
+
+        preview = self.client.get(reverse("attendance:report_builder"), params)
+
+        self.assertEqual(preview.status_code, 200)
+        self.assertEqual(dict(preview.context["report"].summary)["عدد الموظفين"], 1)
+        self.assertEqual(dict(preview.context["report"].summary)["أيام الغياب"], 1)
+        params["output_format"] = "xlsx"
+        exported = self.client.get(reverse("attendance:report_builder"), params)
+        self.assertEqual(exported.status_code, 200)
+        self.assertEqual(
+            exported["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
     def test_weekly_holidays_are_hidden_from_dashboard_and_reports(self):
         records = [
             self._record(

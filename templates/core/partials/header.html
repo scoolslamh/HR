@@ -31,10 +31,10 @@
         </button>
         <div class="dropdown-menu dropdown-menu-end dropdown-menu-arrow">
           <span class="dropdown-header">الحساب</span>
-          <button class="dropdown-item" type="button" disabled>
-            <i data-lucide="user-round" aria-hidden="true"></i>
-            الملف الشخصي
-          </button>
+          <a class="dropdown-item" href="{% url 'accounts:password_change' %}">
+            <i data-lucide="key-round" aria-hidden="true"></i>
+            تغيير كلمة المرور
+          </a>
           <div class="dropdown-divider"></div>
           <form method="post" action="{% url 'core:logout' %}">
             {% csrf_token %}

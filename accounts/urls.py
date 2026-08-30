@@ -6,6 +6,7 @@ app_name = "accounts"
 
 urlpatterns = [
     path("employee-login/", views.employee_national_id_login, name="employee_login"),
+    path("accounts/password/change/", views.password_change, name="password_change"),
     path("accounts/users/", views.user_list, name="user_list"),
     path("accounts/users/add/", views.user_form, name="user_create"),
     path("accounts/users/<uuid:user_id>/edit/", views.user_form, name="user_edit"),
