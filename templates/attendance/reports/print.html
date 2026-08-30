@@ -3,4 +3,5 @@
 <h1>{{ report.title }}</h1>{% if attendance_period %}<div class="meta">الفترة: {{ attendance_period.period_start|date:"Y/m/d" }} — {{ attendance_period.period_end|date:"Y/m/d" }} | تاريخ الإصدار: {% now "Y/m/d H:i" %}</div>{% endif %}
 <div class="summary">{% for label,value in report.summary %}<div class="item"><div>{{ label }}</div><div class="value">{{ value }}</div></div>{% endfor %}</div>
 {% if report.columns %}<table><thead><tr>{% for column in report.columns %}<th>{{ column }}</th>{% endfor %}</tr></thead><tbody>{% for row in report.rows %}<tr>{% for value in row %}<td>{{ value|default:"—" }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>{% endif %}
+{% for section in report.sections %}<h2>{{ section.title }}</h2><table><thead><tr>{% for column in section.columns %}<th>{{ column }}</th>{% endfor %}</tr></thead><tbody>{% for row in section.rows %}<tr>{% for value in row %}<td>{{ value|default:"—" }}</td>{% endfor %}</tr>{% empty %}<tr><td colspan="5">لا توجد بيانات مطابقة.</td></tr>{% endfor %}</tbody></table>{% endfor %}
 </body></html>

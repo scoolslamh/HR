@@ -473,6 +473,7 @@ from organization.selectors import department_ids_in_user_scope
 from core.periods import filter_results_for_period, selected_attendance_period
 
 from .models import CalculationRun, DailyAttendanceResult
+from .selectors import exclude_weekly_holidays
 from .services.calculation import AttendanceCalculationError, calculate_batch
 from .services.employee_report import build_employee_report_summary
 
@@ -558,9 +559,11 @@ def attendance_view_required(view_func):
 
 
 def _result_queryset_for_user(user, *, attendance_period=None):
-    qs = DailyAttendanceResult.objects.filter(
-        is_current=True,
-        source_record__import_row__batch__archived_at__isnull=True,
+    qs = exclude_weekly_holidays(
+        DailyAttendanceResult.objects.filter(
+            is_current=True,
+            source_record__import_row__batch__archived_at__isnull=True,
+        )
     ).select_related(
         "employee",
         "employee__identity",

@@ -13,6 +13,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods
 
 from attendance.models import DailyAttendanceResult
+from attendance.selectors import exclude_weekly_holidays
 from core.periods import selected_attendance_period
 from core.selectors import employees_for_dashboard_user
 from organization.access import user_has_business_permission
@@ -96,10 +97,12 @@ def _work_mission_results(attendance_period=None):
 @require_GET
 def employee_portal(request: HttpRequest) -> HttpResponse:
     employee = request.portal_employee
-    results = DailyAttendanceResult.objects.filter(
-        employee=employee,
-        is_current=True,
-        source_record__import_row__batch__archived_at__isnull=True,
+    results = exclude_weekly_holidays(
+        DailyAttendanceResult.objects.filter(
+            employee=employee,
+            is_current=True,
+            source_record__import_row__batch__archived_at__isnull=True,
+        )
     )
     clarifications = ClarificationRequest.objects.filter(
         attendance_result__source_record__import_row__batch__archived_at__isnull=True,

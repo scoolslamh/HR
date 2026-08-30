@@ -16,6 +16,7 @@
         <div class="card-header"><h2 class="card-title">{{ report.title }}</h2></div>
         <div class="card-body"><div class="row g-3">{% for label,value in report.summary %}<div class="col-6 col-lg-3"><div class="border rounded p-3 h-100"><div class="text-secondary small">{{ label }}</div><div class="h2 mb-0">{{ value }}</div></div></div>{% endfor %}</div></div>
         {% if report.columns %}<div class="table-responsive"><table class="table card-table table-vcenter"><thead><tr>{% for column in report.columns %}<th>{{ column }}</th>{% endfor %}</tr></thead><tbody>{% for row in report.rows %}<tr>{% for value in row %}<td>{{ value|default:"—" }}</td>{% endfor %}</tr>{% empty %}<tr><td colspan="8" class="text-center text-secondary py-4">لا توجد بيانات مطابقة.</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+        {% for section in report.sections %}<div class="card-header border-top"><h3 class="card-title">{{ section.title }}</h3></div><div class="table-responsive"><table class="table card-table table-vcenter"><thead><tr>{% for column in section.columns %}<th>{{ column }}</th>{% endfor %}</tr></thead><tbody>{% for row in section.rows %}<tr>{% for value in row %}<td>{{ value|default:"—" }}</td>{% endfor %}</tr>{% empty %}<tr><td colspan="5" class="text-center text-secondary py-4">لا توجد بيانات مطابقة.</td></tr>{% endfor %}</tbody></table></div>{% endfor %}
       </section>
     {% else %}<section class="card"><div class="card-body text-center text-secondary py-6">اختر إعدادات التقرير لعرض المعاينة.</div></section>{% endif %}
   </div>

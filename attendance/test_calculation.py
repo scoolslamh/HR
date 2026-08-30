@@ -719,6 +719,107 @@ class AttendanceCalculationTests(TestCase):
         self.assertContains(response, "استئذان طبي")
         self.assertNotContains(response, "إجازة سنوية")
 
+    def test_comprehensive_report_contains_executive_summary_and_four_rankings(self):
+        records = [
+            self._record(
+                attendance_date=date(2026, 6, 28),
+                row_number=1,
+                source_status="غياب",
+            ),
+            self._record(
+                attendance_date=date(2026, 6, 29),
+                row_number=2,
+                source_status="استئذان طبي",
+            ),
+            self._record(
+                attendance_date=date(2026, 6, 30),
+                row_number=3,
+                source_status="مهمة عمل رسمية",
+            ),
+            self._record(
+                attendance_date=date(2026, 7, 1),
+                row_number=4,
+                source_status="مكتملة",
+            ),
+        ]
+        calculate_records(
+            records=records, requested_by=self.user, import_batch=self.batch
+        )
+        DailyAttendanceResult.objects.filter(
+            attendance_date=date(2026, 7, 1)
+        ).update(late_minutes=0, early_leave_minutes=0)
+        self.client.force_login(self.user)
+        params = {
+            "report_type": "comprehensive",
+            "limit": "10",
+            "output_format": "preview",
+        }
+
+        response = self.client.get(reverse("attendance:report_builder"), params)
+
+        self.assertEqual(response.status_code, 200)
+        report = response.context["report"]
+        summary = dict(report.summary)
+        self.assertEqual(summary["عدد الموظفين"], 1)
+        self.assertEqual(summary["أيام الغياب"], 1)
+        self.assertEqual(summary["الاستئذانات"], 1)
+        self.assertEqual(summary["مهمات العمل"], 1)
+        self.assertEqual(summary["نسبة الانضباط العامة"], "25%")
+        self.assertEqual(len(report.sections), 4)
+        self.assertEqual(
+            tuple(section.title for section in report.sections),
+            (
+                "أكثر 10 موظفين استئذانًا",
+                "أكثر 10 موظفين في مهمات العمل",
+                "أكثر 10 موظفين غيابًا",
+                "أكثر 10 موظفين انضباطًا",
+            ),
+        )
+        self.assertEqual(report.sections[3].rows[0][-1], "25%")
+        self.assertContains(response, "أكثر 10 موظفين انضباطًا")
+
+        params["output_format"] = "xlsx"
+        exported = self.client.get(reverse("attendance:report_builder"), params)
+        workbook = load_workbook(BytesIO(exported.content), read_only=True)
+        self.assertEqual(len(workbook.sheetnames), 5)
+        self.assertIn("أكثر 10 موظفين غيابًا", workbook.sheetnames)
+        workbook.close()
+
+    def test_weekly_holidays_are_hidden_from_dashboard_and_reports(self):
+        records = [
+            self._record(
+                attendance_date=date(2026, 6, 28),
+                row_number=1,
+                source_status="عطلة الأسبوع",
+            ),
+            self._record(
+                attendance_date=date(2026, 6, 29),
+                row_number=2,
+                source_status="غياب",
+            ),
+        ]
+        calculate_records(
+            records=records, requested_by=self.user, import_batch=self.batch
+        )
+        self.client.force_login(self.user)
+
+        overview = self.client.get(reverse("attendance:report_overview"))
+        employee_report = self.client.get(
+            reverse("attendance:employee_report"),
+            {
+                "employee": self.employee.id,
+                "date_from": "2026-06-28",
+                "date_to": "2026-06-29",
+            },
+        )
+        dashboard = self.client.get(reverse("core:dashboard"))
+
+        self.assertEqual(overview.context["summary"]["records"], 1)
+        self.assertEqual(dict(employee_report.context["summary"])["إجمالي الأيام"], 1)
+        self.assertNotContains(employee_report, "عطلة الأسبوع")
+        unit = dashboard.context["unit_statuses"][0]
+        self.assertEqual(unit["value"], 0)
+
     def test_employee_report_rejects_employee_outside_user_scope(self):
         record = self._record()
         calculate_records(
@@ -752,7 +853,11 @@ class AttendanceCalculationTests(TestCase):
         self.assertNotContains(response, outside_employee.full_name_ar)
 
     def test_employee_login_submit_and_department_head_approval(self):
-        absence = self._record(source_status="غياب")
+        absence = self._record(
+            source_status="غياب",
+            in_location="بوابة الحضور",
+            out_location="بوابة الانصراف",
+        )
         calculate_records(records=[absence], requested_by=self.user, import_batch=self.batch)
         clarification = ClarificationRequest.objects.get()
 
@@ -766,6 +871,10 @@ class AttendanceCalculationTests(TestCase):
         portal = self.client.get(reverse("violations:employee_portal"))
         self.assertContains(portal, "موظف الاختبار")
         self.assertContains(portal, "طلبات الإفادة")
+        self.assertContains(portal, "مكان الحضور")
+        self.assertContains(portal, "بوابة الحضور")
+        self.assertContains(portal, "مكان الانصراف")
+        self.assertContains(portal, "بوابة الانصراف")
         protected_page = self.client.get(reverse("accounts:user_list"))
         self.assertRedirects(protected_page, reverse("violations:employee_portal"))
 

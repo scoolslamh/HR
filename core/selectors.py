@@ -5,6 +5,7 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from attendance.models import DailyAttendanceResult, ImportBatch
+from attendance.selectors import exclude_weekly_holidays
 from organization.access import user_has_business_permission
 from organization.models import Employee, EmploymentAssignment
 from organization.selectors import employees_in_user_department_scope
@@ -43,10 +44,12 @@ def employees_for_dashboard_user(user):
 def dashboard_context_for_user(user, *, attendance_period=None) -> dict:
     employees = employees_for_dashboard_user(user)
     employee_ids = employees.values_list("id", flat=True)
-    results = DailyAttendanceResult.objects.filter(
-        is_current=True,
-        employee_id__in=employee_ids,
-        source_record__import_row__batch__archived_at__isnull=True,
+    results = exclude_weekly_holidays(
+        DailyAttendanceResult.objects.filter(
+            is_current=True,
+            employee_id__in=employee_ids,
+            source_record__import_row__batch__archived_at__isnull=True,
+        )
     )
     if attendance_period is None:
         results = results.none()
