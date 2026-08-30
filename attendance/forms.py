@@ -192,11 +192,13 @@ class ReportBuilderForm(forms.Form):
         widget=forms.RadioSelect,
     )
 
-    def __init__(self, *args, departments=None, **kwargs):
+    def __init__(self, *args, departments=None, include_all_employees=False, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["department"].queryset = (
             departments if departments is not None else Department.objects.none()
         )
+        if include_all_employees:
+            self.fields["department"].empty_label = "جميع الموظفين"
 
     def clean(self):
         cleaned = super().clean()

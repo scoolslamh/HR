@@ -786,6 +786,7 @@ class AttendanceCalculationTests(TestCase):
         workbook.close()
 
     def test_general_manager_without_department_scopes_can_view_and_export_reports(self):
+        self.employee.employment_assignments.all().delete()
         record = self._record(source_status="غياب")
         calculate_records(
             records=[record], requested_by=self.user, import_batch=self.batch
@@ -809,6 +810,7 @@ class AttendanceCalculationTests(TestCase):
         preview = self.client.get(reverse("attendance:report_builder"), params)
 
         self.assertEqual(preview.status_code, 200)
+        self.assertContains(preview, "جميع الموظفين")
         self.assertEqual(dict(preview.context["report"].summary)["عدد الموظفين"], 1)
         self.assertEqual(dict(preview.context["report"].summary)["أيام الغياب"], 1)
         params["output_format"] = "xlsx"

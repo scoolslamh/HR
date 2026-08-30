@@ -13,7 +13,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from django.utils import timezone
 
 from audit.models import AuditLog
-from organization.access import user_has_business_permission
+from organization.access import user_has_active_role, user_has_business_permission
 from organization.services.exceptions import SecurityConfigurationError
 from organization.services.identity import (
     decrypt_sensitive_text,
@@ -572,7 +572,7 @@ def _result_queryset_for_user(user, *, attendance_period=None):
         "calculation_run",
     )
     qs = filter_results_for_period(qs, attendance_period)
-    if user.is_superuser:
+    if user.is_superuser or user_has_active_role(user, "general_manager"):
         return qs
     allowed_ids = department_ids_in_user_scope(user)
     if not allowed_ids:
@@ -931,6 +931,10 @@ def report_builder(request: HttpRequest) -> HttpResponse:
     form = ReportBuilderForm(
         request.GET or None,
         departments=departments,
+        include_all_employees=(
+            request.user.is_superuser
+            or user_has_active_role(request.user, "general_manager")
+        ),
         initial={"report_type": "summary", "limit": 10, "output_format": "preview"},
     )
     report = None
