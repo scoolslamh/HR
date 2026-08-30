@@ -3,7 +3,7 @@ from pathlib import Path
 from django import forms
 from django.conf import settings
 
-from organization.models import Department
+from organization.models import Department, Employee
 from attendance.services.report_export import REPORT_TYPES
 
 
@@ -201,5 +201,38 @@ class ReportBuilderForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         if cleaned.get("date_from") and cleaned.get("date_to") and cleaned["date_from"] > cleaned["date_to"]:
+            self.add_error("date_to", "تاريخ النهاية يجب ألا يسبق تاريخ البداية.")
+        return cleaned
+
+
+class EmployeeReportForm(forms.Form):
+    employee = forms.ModelChoiceField(
+        label="الموظف",
+        queryset=Employee.objects.none(),
+        empty_label="اختر الموظف",
+        widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    date_from = forms.DateField(
+        label="من تاريخ",
+        widget=forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+    )
+    date_to = forms.DateField(
+        label="إلى تاريخ",
+        widget=forms.DateInput(attrs={"class": "form-control", "type": "date"}),
+    )
+
+    def __init__(self, *args, employees=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["employee"].queryset = (
+            employees if employees is not None else Employee.objects.none()
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        if (
+            cleaned.get("date_from")
+            and cleaned.get("date_to")
+            and cleaned["date_from"] > cleaned["date_to"]
+        ):
             self.add_error("date_to", "تاريخ النهاية يجب ألا يسبق تاريخ البداية.")
         return cleaned

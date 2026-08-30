@@ -151,7 +151,11 @@ NAVIGATION_GROUPS = (
                 "url_name": "attendance:report_overview",
                 "label": "التقارير",
                 "icon": "chart-no-axes-combined",
-                "active_url_names": ("report_overview", "outside_location_report"),
+                "active_url_names": (
+                    "report_overview",
+                    "employee_report",
+                    "outside_location_report",
+                ),
             },
         ),
     },

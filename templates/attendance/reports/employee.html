@@ -1,0 +1,31 @@
+{% extends "core/base.html" %}
+{% block content %}
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="get" class="row g-3 align-items-end">
+      <div class="col-md-5"><label class="form-label" for="{{ form.employee.id_for_label }}">{{ form.employee.label }}</label>{{ form.employee }}{% for error in form.employee.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}</div>
+      <div class="col-md-3"><label class="form-label" for="{{ form.date_from.id_for_label }}">{{ form.date_from.label }}</label>{{ form.date_from }}{% for error in form.date_from.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}</div>
+      <div class="col-md-3"><label class="form-label" for="{{ form.date_to.id_for_label }}">{{ form.date_to.label }}</label>{{ form.date_to }}{% for error in form.date_to.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}</div>
+      <div class="col-md-1"><button class="btn btn-primary w-100" type="submit">عرض</button></div>
+    </form>
+  </div>
+</div>
+
+{% if summary %}
+<div class="card mb-4">
+  <div class="card-header"><div><h2 class="card-title">{{ selected_employee.full_name_ar }}</h2><div class="text-secondary">من {{ form.cleaned_data.date_from|date:"Y/m/d" }} إلى {{ form.cleaned_data.date_to|date:"Y/m/d" }}</div></div></div>
+  <div class="card-body"><div class="row g-3">{% for label,value in summary %}<div class="col-6 col-md-4 col-xl-3"><div class="border rounded p-3 h-100"><div class="text-secondary small">{{ label }}</div><div class="h2 mb-0">{{ value }}</div></div></div>{% endfor %}</div></div>
+</div>
+
+<div class="card">
+  <div class="card-header"><h2 class="card-title">التفاصيل اليومية</h2></div>
+  <div class="table-responsive">
+    <table class="table table-vcenter card-table text-nowrap">
+      <thead><tr><th>التاريخ</th><th>القسم</th><th>حالة اليوم</th><th>حالة المصدر</th><th>الحضور</th><th>الانصراف</th><th>موقع الحضور</th><th>موقع الانصراف</th><th>المجدول</th><th>الفعلي</th><th>التأخر</th><th>الانصراف المبكر</th><th>النقص</th><th>الإضافي</th><th>حالة الموقع</th></tr></thead>
+      <tbody>{% for row in rows %}<tr><td>{{ row.date|date:"Y/m/d" }}</td><td>{{ row.department }}</td><td>{{ row.status }}</td><td>{{ row.object.source_status|default:"—" }}</td><td>{{ row.check_in }}</td><td>{{ row.check_out }}</td><td>{{ row.object.check_in_location|default:"—" }}</td><td>{{ row.object.check_out_location|default:"—" }}</td><td>{{ row.scheduled }}</td><td>{{ row.worked }}</td><td>{{ row.late }}</td><td>{{ row.early_leave }}</td><td>{{ row.shortfall }}</td><td>{{ row.overtime }}</td><td>{{ row.object.get_location_status_display }}</td></tr>{% empty %}<tr><td colspan="15" class="text-center text-secondary py-5">لا توجد بيانات للموظف خلال المدة المحددة.</td></tr>{% endfor %}</tbody>
+    </table>
+  </div>
+  {% include "attendance/import/_pagination.html" with page_obj=page_obj %}
+</div>
+{% endif %}
+{% endblock %}

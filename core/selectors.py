@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from django.db.models import Count, Q
+from django.db.models import Count, OuterRef, Q, Subquery
+from django.db.models.functions import Coalesce
+from django.utils import timezone
 
 from attendance.models import DailyAttendanceResult, ImportBatch
 from organization.access import user_has_business_permission
-from organization.models import Employee
+from organization.models import Employee, EmploymentAssignment
 from organization.selectors import employees_in_user_department_scope
 
 
@@ -97,10 +99,26 @@ def dashboard_context_for_user(user, *, attendance_period=None) -> dict:
             for batch in ImportBatch.objects.filter(archived_at__isnull=True)[:3]
         )
 
+    current_department_name = (
+        EmploymentAssignment.objects.filter(
+            employee_id=OuterRef("employee_id"),
+            is_primary=True,
+            valid_from__lte=timezone.localdate(),
+        )
+        .filter(Q(valid_to__isnull=True) | Q(valid_to__gt=timezone.localdate()))
+        .order_by("-valid_from")
+        .values("department__name_ar")[:1]
+    )
     unit_statuses = []
     unit_rows = (
-        results.exclude(department__isnull=True)
-        .values("department__name_ar")
+        results.annotate(
+            effective_department_name=Coalesce(
+                "department__name_ar",
+                Subquery(current_department_name),
+            )
+        )
+        .exclude(effective_department_name__isnull=True)
+        .values("effective_department_name")
         .annotate(
             total=Count("id"),
             disciplined=Count(
@@ -113,14 +131,14 @@ def dashboard_context_for_user(user, *, attendance_period=None) -> dict:
                 & ~Q(location_status__in=OUTSIDE_LOCATION_STATUSES),
             ),
         )
-        .order_by("department__name_ar")
+        .order_by("effective_department_name")
     )
     for row in unit_rows:
         percentage = round((row["disciplined"] / row["total"]) * 100) if row["total"] else 0
         color = "green" if percentage >= 95 else "blue" if percentage >= 90 else "yellow"
         status = "مستقر" if percentage >= 95 else "جيد" if percentage >= 90 else "للمتابعة"
         unit_statuses.append(
-            {"name": row["department__name_ar"], "value": percentage, "status": status, "color": color}
+            {"name": row["effective_department_name"], "value": percentage, "status": status, "color": color}
         )
 
     return {

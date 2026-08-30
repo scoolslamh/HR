@@ -28,6 +28,7 @@ from .forms import (
     AttendanceImportDeleteForm,
     AttendanceImportMetadataForm,
     AttendanceImportUploadForm,
+    EmployeeReportForm,
     ReportBuilderForm,
     UnmatchedEmployeeResolutionForm,
 )
@@ -473,6 +474,7 @@ from core.periods import filter_results_for_period, selected_attendance_period
 
 from .models import CalculationRun, DailyAttendanceResult
 from .services.calculation import AttendanceCalculationError, calculate_batch
+from .services.employee_report import build_employee_report_summary
 
 ATTENDANCE_VIEW_PERMISSION = "attendance.view"
 ATTENDANCE_REPORT_PERMISSION = "attendance.reports"
@@ -849,6 +851,72 @@ def report_overview(request: HttpRequest) -> HttpResponse:
     )
 
 
+@attendance_view_required
+@require_GET
+def employee_report(request: HttpRequest) -> HttpResponse:
+    attendance_period = selected_attendance_period(request)
+    base_qs = _result_queryset_for_user(
+        request.user, attendance_period=attendance_period
+    )
+    employee_ids = base_qs.values_list("employee_id", flat=True)
+    available_employees = Employee.objects.filter(id__in=employee_ids).order_by(
+        "full_name_ar"
+    ).distinct()
+    initial = {}
+    if attendance_period is not None:
+        initial = {
+            "date_from": attendance_period.period_start,
+            "date_to": attendance_period.period_end,
+        }
+    form = EmployeeReportForm(
+        request.GET or None,
+        employees=available_employees,
+        initial=initial,
+    )
+    summary = None
+    rows = ()
+    page_obj = None
+    selected_employee = None
+    if form.is_bound and form.is_valid():
+        selected_employee = form.cleaned_data["employee"]
+        results = base_qs.filter(
+            employee=selected_employee,
+            attendance_date__range=(
+                form.cleaned_data["date_from"],
+                form.cleaned_data["date_to"],
+            ),
+        )
+        summary = build_employee_report_summary(results)
+        page_obj = Paginator(results.order_by("-attendance_date"), 40).get_page(
+            request.GET.get("page")
+        )
+        current_departments = _current_department_map((selected_employee.id,))
+        rows = tuple(
+            {
+                **_result_display(result, request.user, current_departments),
+                "overtime": _minutes_text(result.overtime_minutes),
+            }
+            for result in page_obj.object_list
+        )
+
+    return render(
+        request,
+        "attendance/reports/employee.html",
+        {
+            "page_title": "تقرير الموظف",
+            "page_description": "ملخص وتفاصيل حضور موظف خلال مدة محددة.",
+            "breadcrumb_items": (
+                {"label": "الرئيسية", "url_name": "core:dashboard"},
+                {"label": "التقارير", "url_name": "attendance:report_overview"},
+                {"label": "تقرير الموظف"},
+            ),
+            "form": form,
+            "summary": summary,
+            "rows": rows,
+            "page_obj": page_obj,
+            "selected_employee": selected_employee,
+        },
+    )
 @attendance_view_required
 @require_GET
 def report_builder(request: HttpRequest) -> HttpResponse:

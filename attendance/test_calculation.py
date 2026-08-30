@@ -371,6 +371,38 @@ class AttendanceCalculationTests(TestCase):
         self.assertEqual(mission_list.context["mission_total"], 1)
         self.assertContains(mission_list, self.employee.full_name_ar)
 
+    def test_dashboard_uses_current_department_when_snapshot_is_missing(self):
+        assignment = self.employee.employment_assignments.get(is_primary=True)
+        assignment.valid_from = date(2026, 7, 12)
+        assignment.save(update_fields=("valid_from", "updated_at"))
+        record = self._record()
+        calculate_records(
+            records=[record], requested_by=self.user, import_batch=self.batch
+        )
+        result = DailyAttendanceResult.objects.get()
+        self.assertIsNone(result.department_id)
+        result.late_minutes = 0
+        result.early_leave_minutes = 0
+        result.save(update_fields=("late_minutes", "early_leave_minutes"))
+        self.client.force_login(self.user)
+
+        response = self.client.get(reverse("core:dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.context["unit_statuses"],
+            (
+                {
+                    "name": self.department.name_ar,
+                    "value": 100,
+                    "status": "مستقر",
+                    "color": "green",
+                },
+            ),
+        )
+        self.assertContains(response, self.department.name_ar)
+        self.assertContains(response, "100%")
+
     def test_detects_different_check_in_and_check_out_locations_without_clarification(self):
         record = self._record(in_location="فرع آخر")
         calculate_records(records=[record], requested_by=self.user, import_batch=self.batch)
@@ -643,6 +675,81 @@ class AttendanceCalculationTests(TestCase):
         self.assertEqual(printable.status_code, 200)
         self.assertContains(printable, "طباعة / حفظ PDF")
         self.assertContains(printable, self.employee.full_name_ar)
+
+    def test_employee_report_summarizes_selected_employee_and_date_range(self):
+        records = [
+            self._record(
+                attendance_date=date(2026, 6, 28),
+                row_number=1,
+                source_status="غياب",
+            ),
+            self._record(
+                attendance_date=date(2026, 6, 29),
+                row_number=2,
+                source_status="استئذان طبي",
+            ),
+            self._record(
+                attendance_date=date(2026, 6, 30),
+                row_number=3,
+                source_status="إجازة سنوية",
+            ),
+        ]
+        calculate_records(
+            records=records, requested_by=self.user, import_batch=self.batch
+        )
+        self.client.force_login(self.user)
+
+        response = self.client.get(
+            reverse("attendance:employee_report"),
+            {
+                "employee": self.employee.id,
+                "date_from": "2026-06-28",
+                "date_to": "2026-06-29",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        summary = dict(response.context["summary"])
+        self.assertEqual(summary["إجمالي الأيام"], 2)
+        self.assertEqual(summary["أيام الغياب"], 1)
+        self.assertEqual(summary["الاستئذانات"], 1)
+        self.assertEqual(summary["الإجازات"], 0)
+        self.assertEqual(len(response.context["rows"]), 2)
+        self.assertContains(response, self.employee.full_name_ar)
+        self.assertContains(response, "استئذان طبي")
+        self.assertNotContains(response, "إجازة سنوية")
+
+    def test_employee_report_rejects_employee_outside_user_scope(self):
+        record = self._record()
+        calculate_records(
+            records=[record], requested_by=self.user, import_batch=self.batch
+        )
+        scoped_user = get_user_model().objects.create_user(
+            username="employee-report-viewer",
+            password="Strong-Test-Pass-2026",
+        )
+        UserDepartmentScope.objects.create(
+            user=scoped_user,
+            department=self.department,
+            access_level=UserDepartmentScope.AccessLevel.VIEW,
+            valid_from=timezone.now() - timedelta(days=1),
+        )
+        outside_employee = Employee.objects.create(full_name_ar="موظف خارج النطاق")
+        self.client.force_login(scoped_user)
+
+        response = self.client.get(
+            reverse("attendance:employee_report"),
+            {
+                "employee": outside_employee.id,
+                "date_from": "2026-06-28",
+                "date_to": "2026-07-02",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context["summary"])
+        self.assertIn("employee", response.context["form"].errors)
+        self.assertNotContains(response, outside_employee.full_name_ar)
 
     def test_employee_login_submit_and_department_head_approval(self):
         absence = self._record(source_status="غياب")
